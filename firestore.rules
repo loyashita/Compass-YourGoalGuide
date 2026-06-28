@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Default-deny Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    // Master Gate Relational Sync check for Goal subcollections
+    function isGoalOwner(goalId) {
+      return isSignedIn() && get(/databases/$(database)/documents/goals/$(goalId)).data.userId == request.auth.uid;
+    }
+
+    // 2. User Profiles Collection
+    match /profiles/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && request.resource.data.userId == userId;
+      allow update: if isOwner(userId) && request.resource.data.userId == userId;
+      allow delete: if isOwner(userId);
+    }
+
+    // 3. Daily Todos Collection
+    match /daily_todos/{todoId} {
+      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // 4. Portfolio Rebalancing Audit History
+    match /rebalance_history/{id} {
+      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // 5. Weekly Reviews Collection
+    match /weekly_reviews/{id} {
+      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // 6. Security Audit Logs Collection (Immutable)
+    match /audit_logs/{logId} {
+      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false; // Complete immutability of logs
+    }
+
+    // 6b. Calendar Events Collection
+    match /calendar_events/{id} {
+      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // 7. Goals Top-Level Collection
+    match /goals/{goalId} {
+      allow list, get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      // Subcollection: phases (Relational Master Gate Sync)
+      match /phases/{phaseId} {
+        allow list, get: if isGoalOwner(goalId);
+        allow create, update, delete: if isGoalOwner(goalId);
+      }
+
+      // Subcollection: tasks (Relational Master Gate Sync)
+      match /tasks/{taskId} {
+        allow list, get: if isGoalOwner(goalId);
+        allow create, update, delete: if isGoalOwner(goalId);
+      }
+
+      // Subcollection: resources (Relational Master Gate Sync)
+      match /resources/{resourceId} {
+        allow list, get: if isGoalOwner(goalId);
+        allow create, update, delete: if isGoalOwner(goalId);
+      }
+
+      // Subcollection: chats (Relational Master Gate Sync)
+      match /chats/{chatId} {
+        allow list, get: if isGoalOwner(goalId);
+        allow create, update, delete: if isGoalOwner(goalId);
+      }
+
+      // Subcollection: daily_checkins (Relational Master Gate Sync)
+      match /daily_checkins/{checkInId} {
+        allow list, get: if isGoalOwner(goalId);
+        allow create, update, delete: if isGoalOwner(goalId);
+      }
+
+      // Subcollection: schedules (Relational Master Gate Sync)
+      match /schedules/{scheduleId} {
+        allow list, get: if isGoalOwner(goalId);
+        allow create, update, delete: if isGoalOwner(goalId);
+      }
+    }
+  }
+}

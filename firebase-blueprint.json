@@ -1,0 +1,239 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "User Profile",
+      "description": "User preferences and metadata",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string" },
+        "aiStyle": { "type": "string" },
+        "extraContext": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "Goal": {
+      "title": "User Goal",
+      "description": "Strategic target or project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "priority": { "type": "string" },
+        "targetDate": { "type": "string" },
+        "progressPercentage": { "type": "number" },
+        "confidenceScore": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "Phase": {
+      "title": "Goal Phase",
+      "description": "Phase representing qualitative milestones",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "order": { "type": "number" },
+        "estimatedDuration": { "type": "string" },
+        "suggestedStartDate": { "type": "string" },
+        "suggestedEndDate": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "Task": {
+      "title": "Goal Task",
+      "description": "A specific action item in a phase",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "phaseId": { "type": "string" },
+        "title": { "type": "string" },
+        "priority": { "type": "string" },
+        "suggestedDueDate": { "type": "string" },
+        "order": { "type": "number" },
+        "status": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "Resource": {
+      "title": "Goal Resource",
+      "description": "A book, course, article, or video supporting a goal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string" },
+        "url": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "Chat": {
+      "title": "Goal Chat Message",
+      "description": "Chat log entry for a goal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "role": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "role", "content"]
+    },
+    "DailyCheckIn": {
+      "title": "Daily Goal Check-In",
+      "description": "AI autonomous check-in result",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "diagnosticSentiment": { "type": "string" },
+        "coachingReflection": { "type": "string" },
+        "suggestedActionToday": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "diagnosticSentiment", "coachingReflection"]
+    },
+    "Schedule": {
+      "title": "Goal Schedule",
+      "description": "Autonomous check-in timing and preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "time": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "time", "active"]
+    },
+    "DailyTodo": {
+      "title": "Daily To-Do",
+      "description": "Single-view daily task item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "goalId": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "completed"]
+    },
+    "RebalanceHistory": {
+      "title": "Rebalance Audit History",
+      "description": "Stored history of workload rebalance strategies",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "content": { "type": "string" },
+        "proposedChanges": { "type": "array" }
+      },
+      "required": ["id", "userId", "createdAt"]
+    },
+    "WeeklyReview": {
+      "title": "Weekly Portfolio Review",
+      "description": "Stored history of weekly portfolio audits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "required": ["id", "userId", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "Security Audit Log",
+      "description": "Immutably tracks critical security, rate limit, and data lifecycle events",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "eventType": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "metadata": { "type": "object" },
+        "ip": { "type": "string" }
+      },
+      "required": ["userId", "eventType", "status", "timestamp"]
+    },
+    "CalendarEvent": {
+      "title": "Calendar Event",
+      "description": "Fixed task, deadline, exam, submission, etc.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string" },
+        "date": { "type": "string" },
+        "associatedGoalId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "type", "date"]
+    }
+  },
+  "firestore": {
+    "profiles/{userId}": {
+      "schema": "Profile",
+      "description": "Individual user preferences"
+    },
+    "calendar_events/{id}": {
+      "schema": "CalendarEvent",
+      "description": "User fixed tasks, deadlines, exams, submissions, etc."
+    },
+    "daily_todos/{todoId}": {
+      "schema": "DailyTodo",
+      "description": "Transient or persistent daily tasks"
+    },
+    "rebalance_history/{id}": {
+      "schema": "RebalanceHistory",
+      "description": "Log of workload adjustments recommended by AI"
+    },
+    "weekly_reviews/{id}": {
+      "schema": "WeeklyReview",
+      "description": "Saved weekly performance reviews"
+    },
+    "goals/{goalId}": {
+      "schema": "Goal",
+      "description": "Core milestones and tracking logs"
+    },
+    "goals/{goalId}/phases/{phaseId}": {
+      "schema": "Phase",
+      "description": "Sequential milestones for the target goal"
+    },
+    "goals/{goalId}/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Granular deliverables within a phase"
+    },
+    "goals/{goalId}/resources/{resourceId}": {
+      "schema": "Resource",
+      "description": "Validated study or focus resources for the goal"
+    },
+    "goals/{goalId}/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Coaching discussion transcript for the goal"
+    },
+    "goals/{goalId}/daily_checkins/{checkInId}": {
+      "schema": "DailyCheckIn",
+      "description": "Daily diagnostic report"
+    },
+    "goals/{goalId}/schedules/{scheduleId}": {
+      "schema": "Schedule",
+      "description": "Timing preferences for coaching triggers"
+    },
+    "audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Immutable telemetry and security audit log"
+    }
+  }
+}

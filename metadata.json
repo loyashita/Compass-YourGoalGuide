@@ -1,0 +1,6 @@
+{
+  "name": "Compass",
+  "description": "AI-Powered Personal Goal Management System for overloaded students and young professionals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
