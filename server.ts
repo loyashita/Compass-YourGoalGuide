@@ -225,9 +225,49 @@ function getGemini(): GoogleGenAI {
     if (!key) {
       throw new Error("GEMINI_API_KEY environment variable is required");
     }
-    aiInstance = new GoogleGenAI({ apiKey: key });
+    aiInstance = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
   }
   return aiInstance;
+}
+
+/**
+ * Robust helper to call Gemini generateContent with exponential backoff retries for transient errors.
+ */
+async function generateContentWithRetry(params: any, retries = 3, delay = 1500): Promise<any> {
+  const ai = getGemini();
+  let currentDelay = delay;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (error: any) {
+      const isTransient = 
+        error.status === 503 || 
+        error.code === 503 ||
+        error.status === 429 ||
+        error.code === 429 ||
+        error.message?.includes("503") ||
+        error.message?.includes("429") ||
+        error.message?.includes("high demand") ||
+        error.message?.includes("temporary") ||
+        error.message?.includes("UNAVAILABLE") ||
+        error.message?.includes("RESOURCE_EXHAUSTED");
+
+      if (isTransient && attempt < retries) {
+        console.warn(`[Gemini Server Retry] Attempt ${attempt} failed with transient error: ${error.message || error}. Retrying in ${currentDelay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, currentDelay));
+        currentDelay *= 2;
+      } else {
+        throw error;
+      }
+    }
+  }
 }
 
 // Initialize Firebase SDK lazily for Rate Limiting
@@ -239,8 +279,9 @@ function getDb() {
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
         const firebaseApp = initializeApp(config);
-        firestoreInstance = getFirestore(firebaseApp);
-        console.log("Firebase initialized successfully on server-side.");
+        const dbId = config.firestoreDatabaseId || "(default)";
+        firestoreInstance = getFirestore(firebaseApp, dbId);
+        console.log(`Firebase initialized successfully on server-side with database ID: ${dbId}`);
       } else {
         console.warn("firebase-applet-config.json not found. Rate limits will be tracked in-memory.");
       }
@@ -1170,7 +1211,7 @@ Provide a structured daily check-in card. Respond ONLY with this exact JSON form
 
     let parsedData;
     try {
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: "gemini-3.5-flash",
         contents: userPrompt,
         config: {
@@ -1451,7 +1492,7 @@ CRITICAL GUARDRAILS:
         ? `Role: ${profile.role}, Blocker: ${profile.blocker}, Tone: ${profile.coachingTone}, Workspace Vibe: ${profile.workspaceVibe}, Context: ${profile.extraContext}`
         : "Standard overloaded user profile.";
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: "gemini-3.5-flash",
         contents: `Generate a custom quote for the following user diagnostics profile: ${userProfileStr}`,
         config: {

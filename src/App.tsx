@@ -130,35 +130,10 @@ export default function App() {
 
   // Track Firebase auth changes
   useEffect(() => {
-    if (localStorage.getItem("compass_local_mode") === "true") {
-      const localUid = "local_sandbox_user";
-      setUser({
-        uid: localUid,
-        email: "sandbox@compass.app",
-        isAnonymous: true,
-        displayName: "Sandbox Explorer"
-      });
-      fetchUserProfile(localUid);
-      return;
-    }
-
-    // Safety fallback timeout: If auth fails to respond within 3 seconds (e.g. offline, blocked, or connection delay),
-    // automatically activate Local Sandbox Mode so the app doesn't hang on the loading screen.
-    const fallbackTimeout = setTimeout(() => {
-      console.warn("Firebase Auth timed out. Triggering Local Sandbox fallback.");
-      localStorage.setItem("compass_local_mode", "true");
-      const localUid = "local_sandbox_user";
-      setUser({
-        uid: localUid,
-        email: "sandbox@compass.app",
-        isAnonymous: true,
-        displayName: "Sandbox Explorer"
-      });
-      fetchUserProfile(localUid);
-    }, 3000);
+    // Explicitly clean up any old local mode flags to respect user's intent to use real Auth
+    localStorage.removeItem("compass_local_mode");
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      clearTimeout(fallbackTimeout);
       setUser(currentUser);
       if (currentUser) {
         await fetchUserProfile(currentUser.uid);
@@ -169,19 +144,19 @@ export default function App() {
       }
     });
     return () => {
-      clearTimeout(fallbackTimeout);
       unsubscribe();
     };
   }, []);
 
   const fetchUserProfile = async (uid: string) => {
+    const cachedProfileKey = `compass_profile_cache_${uid}`;
+    let cachedProfile: UserProfile | null = null;
+
     try {
       setAuthLoading(true);
 
       // Fast cache lookup to prevent onboarding flashing
-      const cachedProfileKey = `compass_profile_cache_${uid}`;
       const cachedProfileStr = localStorage.getItem(cachedProfileKey);
-      let cachedProfile: UserProfile | null = null;
       if (cachedProfileStr) {
         try {
           cachedProfile = JSON.parse(cachedProfileStr);
@@ -219,35 +194,23 @@ export default function App() {
         }
       }
     } catch (err: any) {
-      console.warn("Could not load user profile from Firestore (switching to offline fallback):", err.message || err);
-      // Fallback automatically to Local Sandbox Mode if offline, blocked, or permission issues!
-      if (localStorage.getItem("compass_local_mode") !== "true") {
-        console.warn("Activating Local Sandbox Mode fallback due to connection error.");
-        localStorage.setItem("compass_local_mode", "true");
-        
-        const localUid = uid || "local_sandbox_user";
-        setUser({
-          uid: localUid,
-          email: "sandbox@compass.app",
-          isAnonymous: true,
-          displayName: "Sandbox Explorer"
-        });
-
-        const demoProfile: UserProfile = {
-          userId: localUid,
-          role: "Student",
+      console.warn("Could not load user profile from Firestore (using cached/fallback):", err.message || err);
+      // Fallback cleanly to cached or basic offline profile under their REAL auth UID - never mutate to local_sandbox_user
+      if (cachedProfile) {
+        setProfile(cachedProfile);
+        await fetchUserGoals(uid, cachedProfile);
+      } else {
+        const fallbackProfile: UserProfile = {
+          userId: uid,
+          role: "Early Career Professional",
           aiStyle: "Balanced",
-          categoryTabs: ["Academics", "Career", "Side Projects", "Personal"],
-          extraContext: "An ambitious builder balancing academic commitments, career goal preparation, and personal creative side projects. Focused on optimizing daily execution and organizing complex timelines.",
+          categoryTabs: ["General", "Work", "Personal"],
+          extraContext: "Offline fallback profile.",
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
-
-        const dbKey = "compass_db_profiles";
-        localStorage.setItem(dbKey, JSON.stringify([demoProfile]));
-        
-        setProfile(demoProfile);
-        await fetchUserGoals(localUid, demoProfile);
+        setProfile(fallbackProfile);
+        await fetchUserGoals(uid, fallbackProfile);
       }
     } finally {
       setAuthLoading(false);
@@ -270,35 +233,20 @@ export default function App() {
       loadQuote(uid);
 
     } catch (err: any) {
-      console.warn("Could not load user goals from Firestore (switching to offline fallback):", err.message || err);
-      // Fallback automatically to Local Sandbox Mode if offline or blocked!
-      if (localStorage.getItem("compass_local_mode") !== "true") {
-        console.warn("Activating Local Sandbox Mode fallback due to goals fetch failure.");
-        localStorage.setItem("compass_local_mode", "true");
-        
-        const localUid = uid || "local_sandbox_user";
-        setUser({
-          uid: localUid,
-          email: "sandbox@compass.app",
-          isAnonymous: true,
-          displayName: "Sandbox Explorer"
-        });
-
-        const demoProfile: UserProfile = {
-          userId: localUid,
-          role: "Student",
-          aiStyle: "Balanced",
-          categoryTabs: ["Academics", "Career", "Side Projects", "Personal"],
-          extraContext: "An ambitious builder balancing academic commitments, career goal preparation, and personal creative side projects. Focused on optimizing daily execution and organizing complex timelines.",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        const dbKey = "compass_db_profiles";
-        localStorage.setItem(dbKey, JSON.stringify([demoProfile]));
-        
-        setProfile(demoProfile);
-        await fetchUserGoals(localUid, demoProfile);
+      console.warn("Could not load user goals from Firestore (using local storage cache):", err.message || err);
+      // Fallback cleanly using real auth uid and local storage cache - never mutate to local_sandbox_user
+      try {
+        const dbKey = `compass_db_goals`;
+        const raw = localStorage.getItem(dbKey);
+        const list = raw ? JSON.parse(raw) : [];
+        const userGoals = list.filter((g: any) => g.userId === uid);
+        setGoals(userGoals);
+        await fetchAllTasks(userGoals, uid);
+        await fetchStandaloneTodos(uid);
+        loadHabitsAndStreak(uid);
+        loadQuote(uid);
+      } catch (e) {
+        console.error("Local storage fallback goals fetch failed", e);
       }
     } finally {
       setGoalsLoading(false);

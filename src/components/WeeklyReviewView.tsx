@@ -163,7 +163,7 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
                     className={`flex-1 py-1.5 px-1 rounded-lg text-xs font-bold border transition-all active:scale-95 flex flex-col items-center justify-center cursor-pointer ${
                       isSelected
                         ? "bg-theme-bg-accent border-theme-bg-accent text-theme-text-accent shadow-2xs"
-                        : "bg-theme-bg-card border-theme-border-subtle hover:bg-theme-bg-card-hover text-[#221712] dark:text-white"
+                        : "bg-theme-bg-card border-theme-border-main hover:bg-theme-bg-card-hover text-theme-text-main"
                     }`}
                   >
                     <span>{level}</span>

@@ -120,11 +120,35 @@ export default function GoalDetail({
   };
 
   // Start Recording Helper
-  const startRecording = (taskId: string) => {
+  const startRecording = async (taskId: string) => {
     const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionClass) {
       setSpeechError("Speech recognition is not supported in this browser. Please use Google Chrome or Safari.");
       return;
+    }
+
+    setRecordingTaskId(taskId);
+    setRecordingTranscript("");
+    setSpeechError(null);
+    setIsRecording(true);
+
+    // Explicitly request microphone permission first using standard MediaDevices API.
+    // This reliably triggers the browser's native permission popup on both preview and deployed sites.
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Immediately stop the tracks to release the microphone lock so SpeechRecognition can bind to it
+        stream.getTracks().forEach(track => track.stop());
+      } catch (mediaErr: any) {
+        console.warn("Microphone permission prompt failed or was denied:", mediaErr);
+        if (mediaErr.name === "NotAllowedError" || mediaErr.name === "PermissionDeniedError" || mediaErr.message?.includes("denied")) {
+          setSpeechError("Microphone permission was denied. Please check your browser settings or click the camera/mic icon in the URL bar to allow microphone access.");
+        } else {
+          setSpeechError(`Microphone access error: ${mediaErr.message || mediaErr}`);
+        }
+        setIsRecording(false);
+        return;
+      }
     }
 
     try {
@@ -133,11 +157,6 @@ export default function GoalDetail({
           recognitionRef.current.abort();
         } catch (e) {}
       }
-
-      setRecordingTaskId(taskId);
-      setRecordingTranscript("");
-      setSpeechError(null);
-      setIsRecording(true);
 
       const rec = new SpeechRecognitionClass();
       rec.continuous = true;
@@ -157,7 +176,7 @@ export default function GoalDetail({
       };
 
       rec.onerror = (event: any) => {
-        console.error("Speech recognition error:", event.error);
+        console.warn("Speech recognition notice (non-fatal):", event.error);
         if (event.error === "not-allowed") {
           setSpeechError("Microphone permission denied or blocked by iframe security restrictions. If you are using the embedded preview, please click the 'Open in New Tab' button in the top-right corner of the screen to grant microphone access.");
         } else {
@@ -173,7 +192,7 @@ export default function GoalDetail({
       recognitionRef.current = rec;
       rec.start();
     } catch (err: any) {
-      console.error("Failed to start speech recognition:", err);
+      console.warn("Speech recognition initialization notice (non-fatal):", err);
       setSpeechError("Failed to initialize speech recognition.");
       setIsRecording(false);
     }

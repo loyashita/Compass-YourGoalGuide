@@ -52,51 +52,89 @@ export const getPool = () => {
 
     // Wrap pool.connect with transparent retry logic for cold starts
     const originalConnect = poolInstance.connect.bind(poolInstance);
-    poolInstance.connect = async function (this: any, ...args: any[]) {
-      let retries = 10;
-      let delay = 1500;
-      while (retries > 0) {
-        try {
-          const client = await originalConnect(...args);
-          const originalClientQuery = client.query.bind(client);
-          client.query = async function (this: any, ...cArgs: any[]) {
-            let cRetries = 3;
-            let cDelay = 1000;
-            while (cRetries > 0) {
-              try {
-                return await originalClientQuery(...cArgs);
-              } catch (cError: any) {
-                const isConnectionError = 
-                  cError.message?.includes("terminated") || 
-                  cError.message?.includes("connection") || 
-                  cError.message?.includes("timeout");
-                if (isConnectionError && cRetries > 1) {
-                  cRetries--;
-                  await new Promise((resolve) => setTimeout(resolve, cDelay));
-                  cDelay *= 1.5;
-                } else {
-                  throw cError;
-                }
+    poolInstance.connect = function (this: any, ...args: any[]) {
+      const callback = typeof args[args.length - 1] === "function" ? args.pop() : null;
+
+      const wrapClient = (client: any) => {
+        if (!client || client.__wrapped) return client;
+        client.__wrapped = true;
+        const originalClientQuery = client.query.bind(client);
+        client.query = async function (this: any, ...cArgs: any[]) {
+          let cRetries = 3;
+          let cDelay = 1000;
+          while (cRetries > 0) {
+            try {
+              return await originalClientQuery(...cArgs);
+            } catch (cError: any) {
+              const isConnectionError = 
+                cError.message?.includes("terminated") || 
+                cError.message?.includes("connection") || 
+                cError.message?.includes("timeout");
+              if (isConnectionError && cRetries > 1) {
+                cRetries--;
+                await new Promise((resolve) => setTimeout(resolve, cDelay));
+                cDelay *= 1.5;
+              } else {
+                throw cError;
               }
             }
-          } as any;
-          return client;
-        } catch (error: any) {
-          const isConnectionError = 
-            error.message?.includes("terminated") || 
-            error.message?.includes("connection") || 
-            error.message?.includes("timeout") ||
-            error.code === "ECONNREFUSED";
-          
-          if (isConnectionError && retries > 1) {
-            console.warn(`[DB Cold Start] Client connect error, retrying in ${delay}ms... (Remaining retries: ${retries - 1}) Error:`, error.message);
-            retries--;
-            await new Promise((resolve) => setTimeout(resolve, delay));
-            delay = Math.min(delay * 1.5, 4000);
-          } else {
-            throw error;
           }
-        }
+        } as any;
+        return client;
+      };
+
+      if (callback) {
+        let retries = 10;
+        let delay = 1500;
+        const tryConnect = () => {
+          originalConnect(...args, (err: any, client: any, release: any) => {
+            if (err) {
+              const isConnectionError = 
+                err.message?.includes("terminated") || 
+                err.message?.includes("connection") || 
+                err.message?.includes("timeout") ||
+                err.code === "ECONNREFUSED";
+              if (isConnectionError && retries > 1) {
+                retries--;
+                setTimeout(tryConnect, delay);
+                delay = Math.min(delay * 1.5, 4000);
+                return;
+              }
+              return callback(err, client, release);
+            }
+            wrapClient(client);
+            callback(null, client, release);
+          });
+        };
+        tryConnect();
+        return;
+      } else {
+        return (async () => {
+          let retries = 10;
+          let delay = 1500;
+          while (retries > 0) {
+            try {
+              const client = await originalConnect(...args);
+              wrapClient(client);
+              return client;
+            } catch (error: any) {
+              const isConnectionError = 
+                error.message?.includes("terminated") || 
+                error.message?.includes("connection") || 
+                error.message?.includes("timeout") ||
+                error.code === "ECONNREFUSED";
+              
+              if (isConnectionError && retries > 1) {
+                console.warn(`[DB Cold Start] Client connect error, retrying in ${delay}ms... (Remaining retries: ${retries - 1}) Error:`, error.message);
+                retries--;
+                await new Promise((resolve) => setTimeout(resolve, delay));
+                delay = Math.min(delay * 1.5, 4000);
+              } else {
+                throw error;
+              }
+            }
+          }
+        })();
       }
     } as any;
   }

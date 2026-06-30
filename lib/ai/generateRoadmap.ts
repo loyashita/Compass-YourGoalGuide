@@ -9,15 +9,56 @@ function getGemini(): GoogleGenAI {
     if (!key) {
       throw new Error("GEMINI_API_KEY environment variable is required");
     }
-    aiInstance = new GoogleGenAI({ apiKey: key });
+    aiInstance = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
   }
   return aiInstance;
+}
+
+/**
+ * Robust helper to call Gemini generateContent with exponential backoff retries for transient errors.
+ */
+async function generateContentWithRetry(params: any, retries = 3, delay = 1500): Promise<any> {
+  const ai = getGemini();
+  let currentDelay = delay;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (error: any) {
+      const isTransient = 
+        error.status === 503 || 
+        error.code === 503 ||
+        error.status === 429 ||
+        error.code === 429 ||
+        error.message?.includes("503") ||
+        error.message?.includes("429") ||
+        error.message?.includes("high demand") ||
+        error.message?.includes("temporary") ||
+        error.message?.includes("UNAVAILABLE") ||
+        error.message?.includes("RESOURCE_EXHAUSTED");
+
+      if (isTransient && attempt < retries) {
+        console.warn(`[Gemini Retry] Attempt ${attempt} failed with transient error: ${error.message || error}. Retrying in ${currentDelay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, currentDelay));
+        currentDelay *= 2;
+      } else {
+        throw error;
+      }
+    }
+  }
 }
 
 /**
  * First Pass: Generates the raw roadmap based on the goal, user profile, and workload.
  */
 async function generateRawRoadmap(goal: any, profile: any, existingGoals: any[]): Promise<any> {
+
   const ai = getGemini();
 
   const systemInstruction = `You are an expert personal coach and project planner.
@@ -87,7 +128,7 @@ ${
 
 Generate the raw roadmap JSON. Return ONLY the JSON matching the specified schema.`;
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithRetry({
     model: "gemini-3.5-flash",
     contents: userPrompt,
     config: {
@@ -127,7 +168,7 @@ ${JSON.stringify(rawRoadmap, null, 2)}
 
 Provide the audited, corrected, and verified roadmap JSON matching the exact schema.`;
 
-  const response = await ai.models.generateContent({
+  const response = await generateContentWithRetry({
     model: "gemini-3.5-flash",
     contents: userPrompt,
     config: {
