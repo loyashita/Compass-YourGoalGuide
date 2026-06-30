@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -43,6 +43,38 @@
   --color-theme-bg-accent: var(--bg-accent);
   --color-theme-bg-accent-hover: var(--bg-accent-hover);
   --color-theme-text-accent: var(--text-accent);
+
+  --color-alert-danger-bg: var(--alert-danger-bg);
+  --color-alert-danger-border: var(--alert-danger-border);
+  --color-alert-danger-text: var(--alert-danger-text);
+
+  --color-alert-warning-bg: var(--alert-warning-bg);
+  --color-alert-warning-border: var(--alert-warning-border);
+  --color-alert-warning-text: var(--alert-warning-text);
+
+  --color-alert-success-bg: var(--alert-success-bg);
+  --color-alert-success-border: var(--alert-success-border);
+  --color-alert-success-text: var(--alert-success-text);
+
+  --color-evt-exam-bg: var(--evt-exam-bg);
+  --color-evt-exam-border: var(--evt-exam-border);
+  --color-evt-exam-text: var(--evt-exam-text);
+
+  --color-evt-submission-bg: var(--evt-submission-bg);
+  --color-evt-submission-border: var(--evt-submission-border);
+  --color-evt-submission-text: var(--evt-submission-text);
+
+  --color-evt-deadline-bg: var(--evt-deadline-bg);
+  --color-evt-deadline-border: var(--evt-deadline-border);
+  --color-evt-deadline-text: var(--evt-deadline-text);
+
+  --color-evt-fixed-bg: var(--evt-fixed-bg);
+  --color-evt-fixed-border: var(--evt-fixed-border);
+  --color-evt-fixed-text: var(--evt-fixed-text);
+
+  --color-evt-other-bg: var(--evt-other-bg);
+  --color-evt-other-border: var(--evt-other-border);
+  --color-evt-other-text: var(--evt-other-text);
 }
 
 :root, :root.light {
@@ -58,6 +90,38 @@
   --bg-accent: #3c2a21;
   --bg-accent-hover: #221712;
   --text-accent: #fdfcf7;
+
+  --alert-danger-bg: #fff5f5;
+  --alert-danger-border: #feb2b2;
+  --alert-danger-text: #9b2c2c;
+
+  --alert-warning-bg: #fffaf0;
+  --alert-warning-border: #fbd38d;
+  --alert-warning-text: #9c4221;
+
+  --alert-success-bg: #f0fff4;
+  --alert-success-border: #9ae6b4;
+  --alert-success-text: #22543d;
+
+  --evt-exam-bg: #fff5f5;
+  --evt-exam-border: #feb2b2;
+  --evt-exam-text: #9b2c2c;
+
+  --evt-submission-bg: #ebf8ff;
+  --evt-submission-border: #bee3f8;
+  --evt-submission-text: #2b6cb0;
+
+  --evt-deadline-bg: #fffaf0;
+  --evt-deadline-border: #fbd38d;
+  --evt-deadline-text: #9c4221;
+
+  --evt-fixed-bg: #f0fff4;
+  --evt-fixed-border: #9ae6b4;
+  --evt-fixed-text: #22543d;
+
+  --evt-other-bg: #faf5ff;
+  --evt-other-border: #e9d8fd;
+  --evt-other-text: #553c9a;
 }
 
 :root.dark {
@@ -73,6 +137,38 @@
   --bg-accent: #cca57d;
   --bg-accent-hover: #ac7b4e;
   --text-accent: #130d09;
+
+  --alert-danger-bg: rgba(220, 38, 38, 0.15);
+  --alert-danger-border: rgba(220, 38, 38, 0.35);
+  --alert-danger-text: #fecaca;
+
+  --alert-warning-bg: rgba(217, 119, 6, 0.15);
+  --alert-warning-border: rgba(217, 119, 6, 0.35);
+  --alert-warning-text: #fef08a;
+
+  --alert-success-bg: rgba(16, 185, 129, 0.15);
+  --alert-success-border: rgba(16, 185, 129, 0.35);
+  --alert-success-text: #bbf7d0;
+
+  --evt-exam-bg: rgba(239, 68, 68, 0.15);
+  --evt-exam-border: rgba(239, 68, 68, 0.35);
+  --evt-exam-text: #fecaca;
+
+  --evt-submission-bg: rgba(59, 130, 246, 0.15);
+  --evt-submission-border: rgba(59, 130, 246, 0.35);
+  --evt-submission-text: #bfdbfe;
+
+  --evt-deadline-bg: rgba(245, 158, 11, 0.15);
+  --evt-deadline-border: rgba(245, 158, 11, 0.35);
+  --evt-deadline-text: #fef08a;
+
+  --evt-fixed-bg: rgba(16, 185, 129, 0.15);
+  --evt-fixed-border: rgba(16, 185, 129, 0.35);
+  --evt-fixed-text: #bbf7d0;
+
+  --evt-other-bg: rgba(139, 92, 246, 0.15);
+  --evt-other-border: rgba(139, 92, 246, 0.35);
+  --evt-other-text: #ddd6fe;
 }
 
 body {

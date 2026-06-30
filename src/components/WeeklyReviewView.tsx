@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { UserProfile, Goal, WeeklyReview } from "../types";
 import { db, collection, addDoc, getDocs, query, where, orderBy } from "../lib/firebase";
-import { Calendar, Sparkles, ChevronRight, Loader2, Award, History, AlertTriangle } from "lucide-react";
+import { Calendar, Compass, ChevronRight, Loader2, Award, History, AlertTriangle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { safeFetchJson } from "../lib/api";
 
@@ -131,42 +131,49 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
   return (
     <div id="weekly-review-view" className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
       {/* LEFT COLUMN: Review Generation & Logs List */}
-      <div className="lg:col-span-1 bg-beige-50 border border-brown-200 rounded-3xl p-5 shadow-xs flex flex-col gap-4">
-        <div className="flex items-center gap-2 pb-3 border-b border-brown-100">
-          <div className="h-9 w-9 rounded-xl bg-brown-900 text-beige-50 flex items-center justify-center">
+      <div className="lg:col-span-1 bg-theme-bg-card border border-theme-border-main rounded-3xl p-5 shadow-xs flex flex-col gap-4 text-theme-text-main">
+        <div className="flex items-center gap-2 pb-3 border-b border-theme-border-subtle">
+          <div className="h-9 w-9 rounded-xl bg-theme-bg-accent text-theme-text-accent flex items-center justify-center">
             <Award className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-brown-950 font-display">
+            <h2 className="text-sm font-bold text-theme-text-main font-display">
               Weekly Reviews
             </h2>
-            <p className="text-[10px] font-mono font-bold text-brown-500 uppercase tracking-wider">
+            <p className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider">
               Diagnostic performance checks
             </p>
           </div>
         </div>
 
         {/* Interactive Self-Reflection Form (Cognitive Overload & Journal) */}
-        <div className="bg-white border border-brown-150 rounded-2xl p-4 flex flex-col gap-3 shadow-3xs">
+        <div className="bg-theme-bg-panel border border-theme-border-subtle rounded-2xl p-4 flex flex-col gap-3 shadow-3xs text-theme-text-main">
           <div>
-            <label className="text-xs font-bold text-brown-950 block">🧠 Cognitive Overload Index</label>
-            <p className="text-[10px] text-brown-600 mt-0.5 mb-2 leading-tight">Rate your mental workload/stress level this week:</p>
+            <label className="text-xs font-bold text-theme-text-main block">🧠 Cognitive Overload Index</label>
+            <p className="text-[10px] text-theme-text-muted mt-0.5 mb-2 leading-tight">Rate your mental workload/stress level this week:</p>
             <div className="flex justify-between gap-1">
               {[1, 2, 3, 4, 5].map((level) => {
                 const label = level === 1 ? "Calm" : level === 3 ? "Mod" : level === 5 ? "Burned" : "";
+                const isSelected = cognitiveOverload === level;
                 return (
                   <button
                     key={level}
                     type="button"
                     onClick={() => setCognitiveOverload(level)}
                     className={`flex-1 py-1.5 px-1 rounded-lg text-xs font-bold border transition-all active:scale-95 flex flex-col items-center justify-center cursor-pointer ${
-                      cognitiveOverload === level
-                        ? "bg-brown-900 border-brown-900 text-beige-50 shadow-2xs"
-                        : "bg-beige-50 border-brown-150 hover:bg-brown-100 text-brown-850"
+                      isSelected
+                        ? "bg-theme-bg-accent border-theme-bg-accent text-theme-text-accent shadow-2xs"
+                        : "bg-theme-bg-card border-theme-border-subtle hover:bg-theme-bg-card-hover text-[#221712] dark:text-white"
                     }`}
                   >
                     <span>{level}</span>
-                    {label && <span className="text-[8px] font-normal leading-none mt-0.5">{label}</span>}
+                    {label && (
+                      <span className={`text-[8px] font-normal leading-none mt-0.5 ${
+                        isSelected ? "text-theme-text-accent/80" : "text-theme-text-muted"
+                      }`}>
+                        {label}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -174,13 +181,13 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
           </div>
 
           <div>
-            <label className="text-xs font-bold text-brown-950 block">💬 Reflection Journal</label>
-            <p className="text-[10px] text-brown-600 mt-0.5 mb-1.5 leading-tight">Describe any roadblocks, mental blocks, or highlights:</p>
+            <label className="text-xs font-bold text-theme-text-main block">💬 Reflection Journal</label>
+            <p className="text-[10px] text-theme-text-muted mt-0.5 mb-1.5 leading-tight">Describe any roadblocks, mental blocks, or highlights:</p>
             <textarea
               value={userFeedback}
               onChange={(e) => setUserFeedback(e.target.value)}
               placeholder="e.g., Felt overwhelmed by multitasking; struggled with time management but finished Chapter 1..."
-              className="w-full h-16 p-2 rounded-xl text-xs border border-brown-150 focus:border-brown-300 focus:ring-1 focus:ring-brown-300 outline-none bg-beige-50/20 text-brown-950 placeholder-brown-400 resize-none leading-relaxed"
+              className="w-full h-16 p-2 rounded-xl text-xs border border-theme-border-subtle focus:border-theme-border-main focus:ring-1 focus:ring-theme-border-main outline-none bg-theme-bg-card text-theme-text-main placeholder-theme-text-muted/60 resize-none leading-relaxed"
             />
           </div>
         </div>
@@ -188,7 +195,7 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
         <button
           onClick={handleGenerateReview}
           disabled={generating || goals.length === 0}
-          className="w-full inline-flex items-center justify-center gap-2 bg-brown-900 text-beige-50 px-4 py-3 rounded-xl text-xs font-bold hover:bg-brown-850 disabled:opacity-50 active:scale-95 transition shadow-sm"
+          className="w-full inline-flex items-center justify-center gap-2 bg-theme-bg-accent text-theme-text-accent px-4 py-3 rounded-xl text-xs font-bold hover:bg-theme-bg-accent-hover disabled:opacity-50 active:scale-95 transition shadow-sm"
         >
           {generating ? (
             <>
@@ -197,33 +204,33 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
             </>
           ) : (
             <>
-              <Sparkles className="h-3.5 w-3.5" /> 
+              <Compass className="h-3.5 w-3.5" /> 
               <span>Generate Weekly Assessment</span>
             </>
           )}
         </button>
 
         {goals.length === 0 && (
-          <p className="text-[10px] text-center text-brown-500 font-medium">
+          <p className="text-[10px] text-center text-theme-text-muted font-medium">
             You must formulate at least one goal to run assessments.
           </p>
         )}
 
-        <div className="flex justify-between items-center mt-2 border-t border-brown-100 pt-3">
-          <span className="text-[10px] font-mono font-bold text-brown-500 uppercase tracking-wider flex items-center gap-1">
+        <div className="flex justify-between items-center mt-2 border-t border-theme-border-subtle pt-3">
+          <span className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider flex items-center gap-1">
             <History className="h-3.5 w-3.5" /> Historical Audits
           </span>
-          <span className="text-[10px] font-mono font-bold text-brown-600 bg-brown-150 px-1.5 py-0.5 rounded">
+          <span className="text-[10px] font-mono font-bold text-theme-text-main bg-theme-bg-panel border border-theme-border-subtle px-1.5 py-0.5 rounded">
             {reviews.length} logs
           </span>
         </div>
 
         {loadingHistory ? (
           <div className="flex justify-center py-10">
-            <Loader2 className="h-5 w-5 text-brown-400 animate-spin" />
+            <Loader2 className="h-5 w-5 text-theme-text-muted animate-spin" />
           </div>
         ) : reviews.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-brown-200 rounded-2xl bg-white/40 px-4 text-xs text-brown-500">
+          <div className="text-center py-12 border border-dashed border-theme-border-main rounded-2xl bg-theme-bg-panel/40 px-4 text-xs text-theme-text-muted">
             No audits compiled yet. Click the button above to begin.
           </div>
         ) : (
@@ -240,21 +247,21 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
                 <button
                   key={rev.id}
                   onClick={() => setActiveReview(rev)}
-                  className={`w-full text-left p-3 rounded-xl border transition-all text-xs flex justify-between items-center ${
+                  className={`w-full text-left p-3 rounded-xl border transition-all text-xs flex justify-between items-center cursor-pointer ${
                     isActive
-                      ? "border-brown-900 bg-white shadow-sm ring-1 ring-brown-800"
-                      : "border-brown-200 bg-white hover:border-brown-300 text-brown-800"
+                      ? "border-theme-bg-accent bg-theme-bg-panel shadow-sm ring-1 ring-theme-bg-accent text-theme-text-main"
+                      : "border-theme-border-subtle bg-theme-bg-card hover:bg-theme-bg-card-hover text-theme-text-main"
                   }`}
                 >
                   <div className="min-w-0">
-                    <span className="font-semibold text-brown-950 block truncate">
+                    <span className="font-semibold text-theme-text-main block truncate">
                       Assessment: {dateStr}
                     </span>
-                    <span className="text-[10px] text-brown-500 font-mono block mt-0.5">
+                    <span className="text-[10px] text-theme-text-muted font-mono block mt-0.5">
                       {new Date(rev.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <ChevronRight className="h-3.5 w-3.5 text-brown-400 shrink-0 ml-1" />
+                  <ChevronRight className="h-3.5 w-3.5 text-theme-text-muted shrink-0 ml-1" />
                 </button>
               );
             })}
@@ -263,9 +270,9 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
       </div>
 
       {/* RIGHT & CENTER PANEL: Selected Review Viewer (2 cols) */}
-      <div className="lg:col-span-2 bg-beige-50 border border-brown-200 rounded-3xl p-5 sm:p-6 shadow-xs flex flex-col min-h-[450px]">
+      <div className="lg:col-span-2 bg-theme-bg-card border border-theme-border-main rounded-3xl p-5 sm:p-6 shadow-xs flex flex-col min-h-[450px] text-theme-text-main">
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl flex items-center gap-1.5">
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 text-red-800 dark:text-red-400 text-xs rounded-xl flex items-center gap-1.5">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
@@ -273,9 +280,9 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
 
         {generating && (
           <div className="flex-1 flex flex-col items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 text-brown-900 animate-spin mb-3" />
-            <h4 className="text-sm font-bold text-brown-950">Formulating Performance Audit...</h4>
-            <p className="text-xs text-brown-600 mt-1.5 max-w-sm text-center leading-relaxed">
+            <Loader2 className="h-8 w-8 text-theme-bg-accent animate-spin mb-3" />
+            <h4 className="text-sm font-bold text-theme-text-main">Formulating Performance Audit...</h4>
+            <p className="text-xs text-theme-text-muted mt-1.5 max-w-sm text-center leading-relaxed">
               COMPASS is polling active task checklists, past deadlines, and re-calculating alignment stats to deliver customized recommendations.
             </p>
           </div>
@@ -283,14 +290,14 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
 
         {!generating && activeReview && (
           <div className="space-y-4 animate-fade-in flex-1 flex flex-col">
-            <div className="flex items-center gap-1.5 border-b border-brown-100 pb-3">
-              <Calendar className="h-4 w-4 text-brown-500" />
-              <span className="text-[10px] font-mono font-semibold text-brown-500 uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 border-b border-theme-border-subtle pb-3">
+              <Calendar className="h-4 w-4 text-theme-text-muted" />
+              <span className="text-[10px] font-mono font-semibold text-theme-text-muted uppercase tracking-wider">
                 Audit Timeline Generated: {new Date(activeReview.generatedAt).toLocaleString()}
               </span>
             </div>
 
-            <div className="markdown-body text-xs text-brown-900 space-y-4 leading-relaxed max-w-none prose prose-brown bg-white border border-brown-150 p-5 rounded-2xl shadow-2xs overflow-y-auto max-h-[500px]">
+            <div className="markdown-body text-xs text-theme-text-main space-y-4 leading-relaxed max-w-none prose prose-brown dark:prose-invert bg-theme-bg-panel border border-theme-border-subtle p-5 rounded-2xl shadow-2xs overflow-y-auto max-h-[500px]">
               <ReactMarkdown>{activeReview.content}</ReactMarkdown>
             </div>
           </div>
@@ -298,11 +305,11 @@ export default function WeeklyReviewView({ profile, goals }: WeeklyReviewViewPro
 
         {!generating && !activeReview && (
           <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
-            <div className="h-10 w-10 rounded-xl bg-brown-100 flex items-center justify-center mb-3">
-              <Award className="h-5 w-5 text-brown-500" />
+            <div className="h-10 w-10 rounded-xl bg-theme-bg-panel flex items-center justify-center mb-3 border border-theme-border-subtle">
+              <Award className="h-5 w-5 text-theme-text-muted" />
             </div>
-            <h4 className="text-sm font-bold text-brown-950">Assessment Workspace Empty</h4>
-            <p className="text-xs text-brown-600 max-w-sm mt-1.5 leading-relaxed">
+            <h4 className="text-sm font-bold text-theme-text-main">Assessment Workspace Empty</h4>
+            <p className="text-xs text-theme-text-muted max-w-sm mt-1.5 leading-relaxed">
               Click 'Generate Weekly Assessment' on the left sidebar to audit your current workload and formulate suggestions.
             </p>
           </div>

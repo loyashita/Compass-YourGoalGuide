@@ -13,19 +13,20 @@ import {
   AlertCircle, 
   Check, 
   X, 
-  Sparkles,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from "lucide-react";
-import { syncCalendarEventToGoogle, deleteCalendarEventFromGoogle } from "../lib/googleSync";
+import { syncCalendarEventToGoogle, deleteCalendarEventFromGoogle, syncTaskToGoogle, deleteTaskFromGoogle, GoogleAuthError } from "../lib/googleSync";
 
 interface CalendarViewProps {
   profile: UserProfile;
   goals: Goal[];
   googleAccessToken: string | null;
   onConnectGoogle: () => Promise<string | null>;
+  onDisconnectGoogle?: () => void;
 }
 
-export default function CalendarView({ profile, goals, googleAccessToken, onConnectGoogle }: CalendarViewProps) {
+export default function CalendarView({ profile, goals, googleAccessToken, onConnectGoogle, onDisconnectGoogle }: CalendarViewProps) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -72,11 +73,91 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
-  const handleSyncAllToGoogle = async () => {
-    if (!profile.googleCalendarSyncEnabled) {
-      setError("Please enable Google Calendar Sync in Settings first.");
-      return;
+  // States for individual event-level sync status
+  const [eventSyncStatus, setEventSyncStatus] = useState<Record<string, "loading" | "success" | "error" | null>>({});
+
+  const handleSyncError = (err: any, customMessage: string) => {
+    console.error(customMessage, err);
+    if (err instanceof GoogleAuthError || err.status === 401 || err.message?.includes("401") || err.message?.includes("UNAUTHENTICATED")) {
+      if (onDisconnectGoogle) onDisconnectGoogle();
+      alert("Your Google session has expired or is invalid. Please reconnect your Google account by clicking Sync again.");
+    } else {
+      alert(`${customMessage}: ${err.message || err}`);
     }
+  };
+
+  const handleSyncEventToCalendar = async (ev: CalendarEvent) => {
+    setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-cal`]: "loading" }));
+    try {
+      let tokenToUse = googleAccessToken;
+      if (!tokenToUse) {
+        tokenToUse = await onConnectGoogle();
+        if (!tokenToUse) {
+          setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-cal`]: "error" }));
+          return;
+        }
+      }
+
+      const gId = await syncCalendarEventToGoogle(ev, tokenToUse);
+      if (gId) {
+        await updateDoc(doc(db, "calendar_events", ev.id), { googleEventId: gId });
+        setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, googleEventId: gId } : e));
+        setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-cal`]: "success" }));
+        setTimeout(() => {
+          setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-cal`]: null }));
+        }, 3000);
+      }
+    } catch (err: any) {
+      setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-cal`]: "error" }));
+      handleSyncError(err, "Failed to sync event to Google Calendar");
+    }
+  };
+
+  const handleSyncEventToTasks = async (ev: CalendarEvent) => {
+    setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-tasks`]: "loading" }));
+    try {
+      let tokenToUse = googleAccessToken;
+      if (!tokenToUse) {
+        tokenToUse = await onConnectGoogle();
+        if (!tokenToUse) {
+          setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-tasks`]: "error" }));
+          return;
+        }
+      }
+
+      // Map CalendarEvent to virtual GoalTask for syncing to Google Tasks
+      const virtualTask = {
+        id: ev.id,
+        phaseId: "calendar",
+        goalId: ev.associatedGoalId || "calendar",
+        userId: ev.userId,
+        title: ev.title,
+        priority: "Medium" as const,
+        status: "pending" as const,
+        suggestedDueDate: ev.date,
+        order: 0,
+        notes: ev.description,
+        createdAt: ev.createdAt,
+        updatedAt: new Date().toISOString(),
+        googleTaskId: ev.googleTaskId || null
+      };
+
+      const gId = await syncTaskToGoogle(virtualTask, tokenToUse);
+      if (gId) {
+        await updateDoc(doc(db, "calendar_events", ev.id), { googleTaskId: gId });
+        setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, googleTaskId: gId } : e));
+        setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-tasks`]: "success" }));
+        setTimeout(() => {
+          setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-tasks`]: null }));
+        }, 3000);
+      }
+    } catch (err: any) {
+      setEventSyncStatus(prev => ({ ...prev, [`${ev.id}-tasks`]: "error" }));
+      handleSyncError(err, "Failed to sync event to Google Tasks");
+    }
+  };
+
+  const handleSyncAllToGoogle = async () => {
     if (!googleAccessToken) {
       try {
         const token = await onConnectGoogle();
@@ -115,8 +196,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
       setSyncMessage(`Successfully synced ${count} new events to Google Calendar!`);
       setTimeout(() => setSyncMessage(null), 4000);
     } catch (err: any) {
-      console.error(err);
-      setError("Sync failed: " + (err.message || err));
+      handleSyncError(err, "Sync failed");
     } finally {
       setSyncingAll(false);
     }
@@ -166,38 +246,38 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
     switch (evtType) {
       case "Exam":
         return {
-          bg: "bg-red-50 hover:bg-red-100 border-red-200",
-          pill: "bg-red-600 text-white",
-          text: "text-red-800",
-          border: "border-l-4 border-red-500"
+          bg: "bg-[var(--evt-exam-bg)] border-[var(--evt-exam-border)]",
+          pill: "bg-[var(--evt-exam-text)] text-theme-bg-panel",
+          text: "text-[var(--evt-exam-text)]",
+          border: "border-l-4 border-[var(--evt-exam-text)]"
         };
       case "Submission":
         return {
-          bg: "bg-blue-50 hover:bg-blue-100 border-blue-200",
-          pill: "bg-blue-600 text-white",
-          text: "text-blue-800",
-          border: "border-l-4 border-blue-500"
+          bg: "bg-[var(--evt-submission-bg)] border-[var(--evt-submission-border)]",
+          pill: "bg-[var(--evt-submission-text)] text-theme-bg-panel",
+          text: "text-[var(--evt-submission-text)]",
+          border: "border-l-4 border-[var(--evt-submission-text)]"
         };
       case "Deadline":
         return {
-          bg: "bg-amber-50 hover:bg-amber-100 border-amber-200",
-          pill: "bg-amber-600 text-white",
-          text: "text-amber-800",
-          border: "border-l-4 border-amber-500"
+          bg: "bg-[var(--evt-deadline-bg)] border-[var(--evt-deadline-border)]",
+          pill: "bg-[var(--evt-deadline-text)] text-theme-bg-panel",
+          text: "text-[var(--evt-deadline-text)]",
+          border: "border-l-4 border-[var(--evt-deadline-text)]"
         };
       case "Fixed Task":
         return {
-          bg: "bg-emerald-50 hover:bg-emerald-100 border-emerald-200",
-          pill: "bg-emerald-600 text-white",
-          text: "text-emerald-800",
-          border: "border-l-4 border-emerald-500"
+          bg: "bg-[var(--evt-fixed-bg)] border-[var(--evt-fixed-border)]",
+          pill: "bg-[var(--evt-fixed-text)] text-theme-bg-panel",
+          text: "text-[var(--evt-fixed-text)]",
+          border: "border-l-4 border-[var(--evt-fixed-text)]"
         };
       default:
         return {
-          bg: "bg-purple-50 hover:bg-purple-100 border-purple-200",
-          pill: "bg-purple-600 text-white",
-          text: "text-purple-800",
-          border: "border-l-4 border-purple-500"
+          bg: "bg-[var(--evt-other-bg)] border-[var(--evt-other-border)]",
+          pill: "bg-[var(--evt-other-text)] text-theme-bg-panel",
+          text: "text-[var(--evt-other-text)]",
+          border: "border-l-4 border-[var(--evt-other-text)]"
         };
     }
   };
@@ -235,7 +315,9 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
           eventData.googleEventId = gId;
         } catch (gErr: any) {
           console.warn("Google Calendar Sync failed during save:", gErr);
-          // Just log but let user save locally if sync fails
+          if (gErr instanceof GoogleAuthError || gErr.status === 401 || gErr.message?.includes("401") || gErr.message?.includes("UNAUTHENTICATED")) {
+            if (onDisconnectGoogle) onDisconnectGoogle();
+          }
         }
       }
 
@@ -281,11 +363,26 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
     if (!window.confirm("Are you sure you want to delete this calendar event?")) return;
     try {
       const targetEvent = events.find(ev => ev.id === eventId);
-      if (targetEvent?.googleEventId && profile.googleCalendarSyncEnabled && googleAccessToken) {
-        try {
-          await deleteCalendarEventFromGoogle(targetEvent.googleEventId, googleAccessToken);
-        } catch (gErr) {
-          console.warn("Google Calendar delete failed:", gErr);
+      if (googleAccessToken) {
+        if (targetEvent?.googleEventId) {
+          try {
+            await deleteCalendarEventFromGoogle(targetEvent.googleEventId, googleAccessToken);
+          } catch (gErr: any) {
+            console.warn("Google Calendar delete failed:", gErr);
+            if (gErr instanceof GoogleAuthError || gErr.status === 401 || gErr.message?.includes("401") || gErr.message?.includes("UNAUTHENTICATED")) {
+              if (onDisconnectGoogle) onDisconnectGoogle();
+            }
+          }
+        }
+        if (targetEvent?.googleTaskId) {
+          try {
+            await deleteTaskFromGoogle(targetEvent.googleTaskId, googleAccessToken);
+          } catch (gErr: any) {
+            console.warn("Google Tasks delete failed:", gErr);
+            if (gErr instanceof GoogleAuthError || gErr.status === 401 || gErr.message?.includes("401") || gErr.message?.includes("UNAUTHENTICATED")) {
+              if (onDisconnectGoogle) onDisconnectGoogle();
+            }
+          }
         }
       }
       await deleteDoc(doc(db, "calendar_events", eventId));
@@ -338,18 +435,18 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
   return (
     <div id="calendar-view-container" className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
       {/* LEFT & CENTER: Calendar Board (2 cols) */}
-      <div id="calendar-board" className="lg:col-span-2 bg-beige-50 border border-brown-200 rounded-3xl p-5 shadow-xs flex flex-col gap-4">
+      <div id="calendar-board" className="lg:col-span-2 bg-theme-bg-card border border-theme-border-main rounded-3xl p-5 shadow-xs flex flex-col gap-4 text-theme-text-main">
         {/* Calendar Header with Controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-brown-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-theme-border-subtle">
           <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-brown-900 text-beige-50 flex items-center justify-center">
+            <div className="h-9 w-9 rounded-xl bg-theme-bg-accent text-theme-text-accent flex items-center justify-center">
               <CalendarIcon className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-brown-950 font-display">
+              <h2 className="text-lg font-bold text-theme-text-main font-display">
                 {monthNames[month]} {year}
               </h2>
-              <p className="text-[10px] font-mono font-bold text-brown-500 uppercase tracking-wider">
+              <p className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider">
                 Fixed Tasks, Exams & Deadlines Planner
               </p>
             </div>
@@ -377,20 +474,20 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
 
             <button
               onClick={handlePrevMonth}
-              className="p-1.5 rounded-xl border border-brown-200 bg-white hover:bg-beige-100 text-brown-700 transition"
+              className="p-1.5 rounded-xl border border-theme-border-main bg-theme-bg-panel hover:bg-theme-bg-card-hover text-theme-text-main transition cursor-pointer"
               title="Previous Month"
             >
               <ChevronLeft className="h-4.5 w-4.5" />
             </button>
             <button
               onClick={handleToday}
-              className="px-3 py-1.5 text-xs font-bold rounded-xl border border-brown-200 bg-white hover:bg-beige-100 text-brown-800 transition"
+              className="px-3 py-1.5 text-xs font-bold rounded-xl border border-theme-border-main bg-theme-bg-panel hover:bg-theme-bg-card-hover text-theme-text-main transition cursor-pointer"
             >
               Today
             </button>
             <button
               onClick={handleNextMonth}
-              className="p-1.5 rounded-xl border border-brown-200 bg-white hover:bg-beige-100 text-brown-700 transition"
+              className="p-1.5 rounded-xl border border-theme-border-main bg-theme-bg-panel hover:bg-theme-bg-card-hover text-theme-text-main transition cursor-pointer"
               title="Next Month"
             >
               <ChevronRight className="h-4.5 w-4.5" />
@@ -399,7 +496,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
         </div>
 
         {/* Days of Week Row */}
-        <div className="grid grid-cols-7 text-center text-xs font-bold text-brown-500 border-b border-brown-100/60 pb-2">
+        <div className="grid grid-cols-7 text-center text-xs font-bold text-theme-text-muted border-b border-theme-border-subtle pb-2">
           <span>Sun</span>
           <span>Mon</span>
           <span>Tue</span>
@@ -410,7 +507,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
         </div>
 
         {/* Monthly Grid */}
-        <div className="grid grid-cols-7 gap-1 bg-brown-100/30 p-1.5 rounded-2xl border border-brown-100">
+        <div className="grid grid-cols-7 gap-1 bg-theme-bg-panel p-1.5 rounded-2xl border border-theme-border-main">
           {calendarCells.map((cell, idx) => {
             const isSelected = cell.dateString === selectedDate;
             const isToday = cell.dateString === todayStr;
@@ -421,27 +518,27 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
                 key={idx}
                 disabled={!cell.isCurrentMonth}
                 onClick={() => cell.day && selectDay(cell.day)}
-                className={`min-h-[76px] sm:min-h-[96px] p-1 rounded-xl text-left flex flex-col justify-between transition-all relative select-none ${
+                className={`min-h-[76px] sm:min-h-[96px] p-1 rounded-xl text-left flex flex-col justify-between transition-all relative select-none cursor-pointer ${
                   !cell.isCurrentMonth
-                    ? "opacity-25 bg-neutral-100/50 cursor-not-allowed"
+                    ? "opacity-25 bg-theme-bg-panel/50 cursor-not-allowed"
                     : isSelected
-                    ? "bg-brown-900 text-beige-50 ring-2 ring-brown-800 shadow-md"
+                    ? "bg-theme-bg-accent text-theme-text-accent ring-2 ring-theme-border-main shadow-md"
                     : isToday
-                    ? "bg-brown-150/70 border border-brown-300 text-brown-950 font-semibold"
-                    : "bg-white hover:bg-beige-100 border border-brown-100/50 text-brown-900"
+                    ? "bg-theme-bg-card-hover border border-theme-border-main text-theme-text-main font-semibold"
+                    : "bg-theme-bg-card hover:bg-theme-bg-card-hover border border-theme-border-subtle text-theme-text-main"
                 }`}
               >
                 {/* Date Label */}
                 <div className="flex justify-between items-center w-full">
                   <span className={`text-[11px] sm:text-xs font-semibold px-1.5 py-0.5 rounded-md ${
-                    isToday && !isSelected ? "bg-brown-900 text-white" : ""
+                    isToday && !isSelected ? "bg-theme-bg-accent text-theme-text-accent" : ""
                   }`}>
                     {cell.day}
                   </span>
 
                   {dayEvents.length > 0 && cell.isCurrentMonth && (
                     <span className={`text-[9px] font-mono font-bold px-1 rounded-sm ${
-                      isSelected ? "bg-beige-50/20 text-beige-50" : "bg-brown-150 text-brown-700"
+                      isSelected ? "bg-black/20 text-theme-text-accent" : "bg-theme-bg-card-hover text-theme-text-muted"
                     }`}>
                       {dayEvents.length}
                     </span>
@@ -491,13 +588,13 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
       </div>
 
       {/* RIGHT COLUMN: Selected Date Details & Events Action Panel (1 col) */}
-      <div id="calendar-sidebar" className="bg-beige-50 border border-brown-200 rounded-3xl p-5 shadow-xs flex flex-col gap-5">
+      <div id="calendar-sidebar" className="bg-theme-bg-card border border-theme-border-main rounded-3xl p-5 shadow-xs flex flex-col gap-5 text-theme-text-main">
         {/* Header containing selected date */}
-        <div className="border-b border-brown-100 pb-3">
-          <span className="text-[10px] font-mono font-bold text-brown-500 uppercase tracking-wider block">
+        <div className="border-b border-theme-border-subtle pb-3">
+          <span className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider block">
             Selected Timeline Slot
           </span>
-          <h3 className="text-base font-bold text-brown-950 font-display mt-0.5">
+          <h3 className="text-base font-bold text-theme-text-main font-display mt-0.5">
             {new Date(selectedDate).toLocaleDateString("en-US", {
               weekday: 'long',
               year: 'numeric',
@@ -508,25 +605,25 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
         </div>
 
         {syncMessage && (
-          <div className="p-3 bg-emerald-50 text-emerald-800 text-xs rounded-2xl border border-emerald-200 flex items-center gap-2 animate-fade-in shadow-2xs">
-            <Check className="h-4 w-4 shrink-0 text-emerald-600" />
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-400 text-xs rounded-2xl border border-emerald-200 dark:border-emerald-900/50 flex items-center gap-2 animate-fade-in shadow-2xs">
+            <Check className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>{syncMessage}</span>
           </div>
         )}
 
         {error && !showAddForm && (
-          <div className="p-3 bg-red-50 text-red-800 text-xs rounded-2xl border border-red-200 flex items-center gap-2 animate-fade-in shadow-2xs">
-            <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+          <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-800 dark:text-red-400 text-xs rounded-2xl border border-red-200 dark:border-red-900/50 flex items-center gap-2 animate-fade-in shadow-2xs">
+            <AlertCircle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
             <span>{error}</span>
           </div>
         )}
 
         {/* Form to Add/Edit Event */}
         {showAddForm ? (
-          <form onSubmit={handleSaveEvent} className="bg-white border border-brown-150 p-4 rounded-2xl flex flex-col gap-3.5 shadow-sm animate-fade-in">
+          <form onSubmit={handleSaveEvent} className="bg-theme-bg-panel border border-theme-border-subtle p-4 rounded-2xl flex flex-col gap-3.5 shadow-sm animate-fade-in">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-brown-950 flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-brown-600" />
+              <span className="text-xs font-bold text-theme-text-main flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-theme-text-muted" />
                 {editingEvent ? "Edit Slot Event" : "Create Slot Event"}
               </span>
               <button
@@ -537,7 +634,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
                   setTitle("");
                   setDescription("");
                 }}
-                className="p-1 rounded-lg hover:bg-beige-100 text-brown-400 hover:text-brown-700"
+                className="p-1 rounded-lg hover:bg-theme-bg-card-hover text-theme-text-muted hover:text-theme-text-main"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -551,7 +648,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
             )}
 
             <div>
-              <label className="block text-[10px] font-mono font-bold text-brown-500 uppercase mb-1">
+              <label className="block text-[10px] font-mono font-bold text-theme-text-muted uppercase mb-1">
                 Event Title *
               </label>
               <input
@@ -559,67 +656,67 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Midterm Exam or Final Presentation"
-                className="w-full text-xs rounded-xl border-brown-200 bg-neutral-50 p-2.5 outline-none focus:bg-white focus:ring-1 focus:ring-brown-600"
+                className="w-full text-xs rounded-xl border border-theme-border-main bg-theme-bg-panel text-theme-text-main p-2.5 outline-none focus:bg-theme-bg-card focus:ring-1 focus:ring-theme-border-main placeholder-theme-text-muted"
                 required
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-mono font-bold text-brown-500 uppercase mb-1">
+                <label className="block text-[10px] font-mono font-bold text-theme-text-muted uppercase mb-1">
                   Type *
                 </label>
                 <select
                   value={type}
                   onChange={(e) => setType(e.target.value as CalendarEvent["type"])}
-                  className="w-full text-xs rounded-xl border-brown-200 bg-neutral-50 p-2.5 outline-none focus:bg-white focus:ring-1 focus:ring-brown-600"
+                  className="w-full text-xs rounded-xl border border-theme-border-main bg-theme-bg-panel text-theme-text-main p-2.5 outline-none focus:bg-theme-bg-card focus:ring-1 focus:ring-theme-border-main"
                 >
-                  <option value="Fixed Task">Fixed Task</option>
-                  <option value="Exam">Exam</option>
-                  <option value="Submission">Submission</option>
-                  <option value="Deadline">Deadline</option>
-                  <option value="Other">Other</option>
+                  <option value="Fixed Task" className="bg-white dark:bg-[#1c140e] text-[#221712] dark:text-white">Fixed Task</option>
+                  <option value="Exam" className="bg-white dark:bg-[#1c140e] text-[#221712] dark:text-white">Exam</option>
+                  <option value="Submission" className="bg-white dark:bg-[#1c140e] text-[#221712] dark:text-white">Submission</option>
+                  <option value="Deadline" className="bg-white dark:bg-[#1c140e] text-[#221712] dark:text-white">Deadline</option>
+                  <option value="Other" className="bg-white dark:bg-[#1c140e] text-[#221712] dark:text-white">Other</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-[10px] font-mono font-bold text-brown-500 uppercase mb-1">
+                <label className="block text-[10px] font-mono font-bold text-theme-text-muted uppercase mb-1">
                   Target Date *
                 </label>
                 <input
                   type="date"
                   value={eventDate}
                   onChange={(e) => setEventDate(e.target.value)}
-                  className="w-full text-xs rounded-xl border-brown-200 bg-neutral-50 p-2.5 outline-none focus:bg-white focus:ring-1 focus:ring-brown-600"
+                  className="w-full text-xs rounded-xl border border-theme-border-main bg-theme-bg-panel text-theme-text-main p-2.5 outline-none focus:bg-theme-bg-card focus:ring-1 focus:ring-theme-border-main"
                   required
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[10px] font-mono font-bold text-brown-500 uppercase mb-1">
+              <label className="block text-[10px] font-mono font-bold text-theme-text-muted uppercase mb-1">
                 Description / Syllabus
               </label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Syllabus coverage, location, weighting, room number etc..."
-                className="w-full text-xs rounded-xl border-brown-200 bg-neutral-50 p-2.5 outline-none focus:bg-white focus:ring-1 focus:ring-brown-600 h-16 resize-none"
+                className="w-full text-xs rounded-xl border border-theme-border-main bg-theme-bg-panel text-theme-text-main p-2.5 outline-none focus:bg-theme-bg-card focus:ring-1 focus:ring-theme-border-main h-16 resize-none placeholder-theme-text-muted"
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-mono font-bold text-brown-500 uppercase mb-1">
+              <label className="block text-[10px] font-mono font-bold text-theme-text-muted uppercase mb-1">
                 Associate with Goal (Optional)
               </label>
               <select
                 value={associatedGoalId}
                 onChange={(e) => setAssociatedGoalId(e.target.value)}
-                className="w-full text-xs rounded-xl border-brown-200 bg-neutral-50 p-2.5 outline-none focus:bg-white focus:ring-1 focus:ring-brown-600"
+                className="w-full text-xs rounded-xl border border-theme-border-main bg-theme-bg-panel text-theme-text-main p-2.5 outline-none focus:bg-theme-bg-card focus:ring-1 focus:ring-theme-border-main"
               >
-                <option value="">No Associated Goal</option>
+                <option value="" className="bg-white dark:bg-[#1c140e] text-[#221712] dark:text-white">No Associated Goal</option>
                 {goals.map(g => (
-                  <option key={g.id} value={g.id}>{g.title}</option>
+                  <option key={g.id} value={g.id} className="bg-white dark:bg-[#1c140e] text-[#221712] dark:text-white">{g.title}</option>
                 ))}
               </select>
             </div>
@@ -627,7 +724,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-2 bg-brown-900 text-white rounded-xl text-xs font-bold hover:bg-brown-850 active:scale-95 transition flex items-center justify-center gap-1.5"
+              className="w-full py-2 bg-theme-bg-accent text-theme-text-accent rounded-xl text-xs font-bold hover:bg-theme-bg-accent-hover active:scale-95 transition flex items-center justify-center gap-1.5"
             >
               <Check className="h-4 w-4" />
               <span>{editingEvent ? "Save Changes" : "Save Event"}</span>
@@ -639,7 +736,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
               setEventDate(selectedDate);
               setShowAddForm(true);
             }}
-            className="w-full py-2.5 bg-brown-900 text-white rounded-xl text-xs font-bold hover:bg-brown-850 active:scale-95 transition flex items-center justify-center gap-1.5 shadow-xs"
+            className="w-full py-2.5 bg-theme-bg-accent text-theme-text-accent rounded-xl text-xs font-bold hover:bg-theme-bg-accent-hover active:scale-95 transition flex items-center justify-center gap-1.5 shadow-xs"
           >
             <Plus className="h-4 w-4" />
             <span>Add Event for {new Date(selectedDate).toLocaleDateString("en-US", { month: 'short', day: 'numeric' })}</span>
@@ -648,19 +745,19 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
 
         {/* List of Events on Selected Day */}
         <div className="flex-1 flex flex-col gap-3.5 overflow-y-auto">
-          <span className="text-[10px] font-mono font-bold text-brown-500 uppercase tracking-wider">
+          <span className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider">
             Events Scheduled ({selectedDayEvents.length})
           </span>
 
           {loading ? (
-            <div className="text-center py-6 text-xs text-brown-500">
+            <div className="text-center py-6 text-xs text-theme-text-muted">
               Loading calendar events...
             </div>
           ) : selectedDayEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed border-brown-200 rounded-2xl bg-white/40 px-4">
-              <CalendarIcon className="h-8 w-8 text-brown-300 mb-1.5" />
-              <p className="text-xs font-medium text-brown-600">No events on this date</p>
-              <p className="text-[10px] text-brown-500 mt-0.5 leading-normal">
+            <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed border-theme-border-main rounded-2xl bg-theme-bg-panel/40 px-4">
+              <CalendarIcon className="h-8 w-8 text-theme-text-muted mb-1.5" />
+              <p className="text-xs font-medium text-theme-text-main">No events on this date</p>
+              <p className="text-[10px] text-theme-text-muted mt-0.5 leading-normal">
                 Deadlines, exams, submissions, and fixed tasks will show up here.
               </p>
             </div>
@@ -673,7 +770,7 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
                 return (
                   <div
                     key={ev.id}
-                    className={`bg-white border border-brown-150 p-3 rounded-2xl flex flex-col gap-2 relative group hover:border-brown-300 transition shadow-2xs ${styles.border}`}
+                    className={`bg-theme-bg-panel border border-theme-border-subtle p-3 rounded-2xl flex flex-col gap-2 relative group hover:border-theme-border-main transition shadow-2xs ${styles.border}`}
                   >
                     <div className="flex justify-between items-start pr-12">
                       <div>
@@ -681,13 +778,8 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
                           <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md ${styles.pill}`}>
                             {ev.type}
                           </span>
-                          {ev.googleEventId && (
-                            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-150 flex items-center gap-0.5" title="Synchronized with Google Calendar">
-                              Google Synced
-                            </span>
-                          )}
                         </div>
-                        <h4 className="text-xs font-bold text-brown-950 mt-1.5 leading-tight">
+                        <h4 className="text-xs font-bold text-theme-text-main mt-1.5 leading-tight">
                           {ev.title}
                         </h4>
                       </div>
@@ -696,14 +788,14 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
                       <div className="absolute right-2.5 top-2.5 flex items-center gap-1">
                         <button
                           onClick={() => startEdit(ev)}
-                          className="p-1 rounded-lg hover:bg-beige-100 text-brown-500 hover:text-brown-800 transition"
+                          className="p-1 rounded-lg hover:bg-theme-bg-card-hover text-theme-text-muted hover:text-theme-text-main transition cursor-pointer"
                           title="Edit event"
                         >
                           <Edit3 className="h-3.5 w-3.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteEvent(ev.id)}
-                          className="p-1 rounded-lg hover:bg-red-50 text-brown-400 hover:text-red-700 transition"
+                          className="p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-theme-text-muted hover:text-red-600 transition cursor-pointer"
                           title="Delete event"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -712,17 +804,86 @@ export default function CalendarView({ profile, goals, googleAccessToken, onConn
                     </div>
 
                     {ev.description && (
-                      <p className="text-[11px] text-brown-600 leading-normal bg-neutral-50/50 p-2 rounded-xl border border-neutral-100 font-sans">
+                      <p className="text-[11px] text-theme-text-main leading-normal bg-theme-bg-app p-2 rounded-xl border border-theme-border-subtle font-sans">
                         {ev.description}
                       </p>
                     )}
 
                     {linkedGoal && (
-                      <div className="flex items-center gap-1 text-[9px] text-brown-500 font-semibold bg-beige-100/50 py-1 px-2 rounded-lg self-start">
-                        <BookOpen className="h-3 w-3 shrink-0 text-brown-600" />
+                      <div className="flex items-center gap-1 text-[9px] text-theme-text-muted font-semibold bg-theme-bg-app py-1 px-2 rounded-lg border border-theme-border-subtle self-start">
+                        <BookOpen className="h-3 w-3 shrink-0 text-theme-text-muted" />
                         <span>Goal: {linkedGoal.title}</span>
                       </div>
                     )}
+
+                    {/* Event Google Sync Options */}
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1 pt-2 border-t border-theme-border-subtle">
+                      {/* Sync to Google Calendar */}
+                      {ev.googleEventId ? (
+                        <button
+                          type="button"
+                          onClick={() => handleSyncEventToCalendar(ev)}
+                          disabled={eventSyncStatus[`${ev.id}-cal`] === "loading"}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150/40 hover:border-emerald-400 transition cursor-pointer"
+                          title="Resync this event to Google Calendar"
+                        >
+                          {eventSyncStatus[`${ev.id}-cal`] === "loading" ? (
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          ) : (
+                            <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+                          )}
+                          <span>Google Cal</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSyncEventToCalendar(ev)}
+                          disabled={eventSyncStatus[`${ev.id}-cal`] === "loading"}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold text-theme-text-muted hover:text-theme-text-main bg-theme-bg-panel border border-theme-border-subtle hover:border-theme-border-main transition cursor-pointer"
+                          title="Sync this event to Google Calendar"
+                        >
+                          {eventSyncStatus[`${ev.id}-cal`] === "loading" ? (
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          ) : (
+                            <CalendarIcon className="h-2.5 w-2.5 text-theme-text-muted" />
+                          )}
+                          <span>+ Google Cal</span>
+                        </button>
+                      )}
+
+                      {/* Sync to Google Tasks */}
+                      {ev.googleTaskId ? (
+                        <button
+                          type="button"
+                          onClick={() => handleSyncEventToTasks(ev)}
+                          disabled={eventSyncStatus[`${ev.id}-tasks`] === "loading"}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150/40 hover:border-emerald-400 transition cursor-pointer"
+                          title="Resync this event to Google Tasks"
+                        >
+                          {eventSyncStatus[`${ev.id}-tasks`] === "loading" ? (
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          ) : (
+                            <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+                          )}
+                          <span>Google Tasks</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSyncEventToTasks(ev)}
+                          disabled={eventSyncStatus[`${ev.id}-tasks`] === "loading"}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-mono font-bold text-theme-text-muted hover:text-theme-text-main bg-theme-bg-panel border border-theme-border-subtle hover:border-theme-border-main transition cursor-pointer"
+                          title="Sync this event to Google Tasks"
+                        >
+                          {eventSyncStatus[`${ev.id}-tasks`] === "loading" ? (
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-2.5 w-2.5 text-theme-text-muted" />
+                          )}
+                          <span>+ Google Tasks</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}

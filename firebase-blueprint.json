@@ -122,7 +122,9 @@
         "title": { "type": "string" },
         "completed": { "type": "boolean" },
         "createdAt": { "type": "string" },
-        "goalId": { "type": "string" }
+        "goalId": { "type": "string" },
+        "priority": { "type": "string" },
+        "notes": { "type": "string" }
       },
       "required": ["id", "userId", "title", "completed"]
     },

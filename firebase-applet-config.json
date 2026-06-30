@@ -3,6 +3,7 @@
   "appId": "1:690147333545:web:28d649bc6f3c01f72460b8",
   "apiKey": "AIzaSyCfm2L2qs6sgMOW75np_RKRQkV5SsBXnsc",
   "authDomain": "ambient-actor-h07pf.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-compass-051e1ee8-146f-4e5d-9bd5-b232d3e2736c",
   "storageBucket": "ambient-actor-h07pf.firebasestorage.app",
   "messagingSenderId": "690147333545",
   "measurementId": ""

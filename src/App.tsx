@@ -27,10 +27,10 @@ import RebalanceModal from "./components/RebalanceModal";
 import PortfolioAnalytics from "./components/PortfolioAnalytics";
 import CalendarView from "./components/CalendarView";
 import SettingsView from "./components/SettingsView";
+import TrophyCase from "./components/TrophyCase";
 
 // Icons
 import {
-  Sparkles,
   Plus,
   Compass,
   LogOut,
@@ -60,7 +60,11 @@ import {
   ChevronLeft,
   Search,
   Sun,
-  Moon
+  Moon,
+  Trophy,
+  ChevronDown,
+  ChevronUp,
+  FileText
 } from "lucide-react";
 
 export default function App() {
@@ -76,7 +80,7 @@ export default function App() {
   // Active View States
   const [activeGoal, setActiveGoal] = useState<Goal | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'analytics' | 'calendar' | 'settings' | 'assessment'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'goals' | 'analytics' | 'calendar' | 'settings' | 'assessment' | 'trophy'>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -105,7 +109,12 @@ export default function App() {
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [standaloneTodos, setStandaloneTodos] = useState<any[]>([]);
   const [checkedHabits, setCheckedHabits] = useState<string[]>([]);
-  const [streakCount, setStreakCount] = useState<number>(3);
+  const [streakCount, setStreakCount] = useState<number>(0);
+  const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({
+    habit_checkin: 0,
+    habit_focus: 0,
+    habit_reflection: 0,
+  });
   const [quote, setQuote] = useState({
     quote: "The impediment to action advances action. What stands in the way becomes the way.",
     author: "Marcus Aurelius"
@@ -113,22 +122,43 @@ export default function App() {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [newTodoTitle, setNewTodoTitle] = useState("");
   const [newTodoPriority, setNewTodoPriority] = useState<'High' | 'Medium' | 'Low'>("Medium");
+  const [newTodoNotes, setNewTodoNotes] = useState("");
+  const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null);
+  const [editingTodoTitle, setEditingTodoTitle] = useState("");
+  const [editingTodoPriority, setEditingTodoPriority] = useState<'High' | 'Medium' | 'Low'>("Medium");
+  const [editingTodoNotes, setEditingTodoNotes] = useState("");
 
   // Track Firebase auth changes
   useEffect(() => {
     if (localStorage.getItem("compass_local_mode") === "true") {
-      const localUid = "local_yashita_grader";
+      const localUid = "local_sandbox_user";
       setUser({
         uid: localUid,
-        email: "yashitaloya@gmail.com",
+        email: "sandbox@compass.app",
         isAnonymous: true,
-        displayName: "Yashita (Local Sandbox)"
+        displayName: "Sandbox Explorer"
       });
       fetchUserProfile(localUid);
       return;
     }
 
+    // Safety fallback timeout: If auth fails to respond within 3 seconds (e.g. offline, blocked, or connection delay),
+    // automatically activate Local Sandbox Mode so the app doesn't hang on the loading screen.
+    const fallbackTimeout = setTimeout(() => {
+      console.warn("Firebase Auth timed out. Triggering Local Sandbox fallback.");
+      localStorage.setItem("compass_local_mode", "true");
+      const localUid = "local_sandbox_user";
+      setUser({
+        uid: localUid,
+        email: "sandbox@compass.app",
+        isAnonymous: true,
+        displayName: "Sandbox Explorer"
+      });
+      fetchUserProfile(localUid);
+    }, 3000);
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      clearTimeout(fallbackTimeout);
       setUser(currentUser);
       if (currentUser) {
         await fetchUserProfile(currentUser.uid);
@@ -138,7 +168,10 @@ export default function App() {
         setAuthLoading(false);
       }
     });
-    return unsubscribe;
+    return () => {
+      clearTimeout(fallbackTimeout);
+      unsubscribe();
+    };
   }, []);
 
   const fetchUserProfile = async (uid: string) => {
@@ -192,12 +225,12 @@ export default function App() {
         console.warn("Activating Local Sandbox Mode fallback due to connection error.");
         localStorage.setItem("compass_local_mode", "true");
         
-        const localUid = uid || "local_yashita_grader";
+        const localUid = uid || "local_sandbox_user";
         setUser({
           uid: localUid,
-          email: "yashitaloya@gmail.com",
+          email: "sandbox@compass.app",
           isAnonymous: true,
-          displayName: "Yashita (Local Sandbox)"
+          displayName: "Sandbox Explorer"
         });
 
         const demoProfile: UserProfile = {
@@ -205,7 +238,7 @@ export default function App() {
           role: "Student",
           aiStyle: "Balanced",
           categoryTabs: ["Academics", "Career", "Side Projects", "Personal"],
-          extraContext: "Yashita, 20. Dual degree in Engineering + Economics. Under massive overload prepping macro midsems and shipping side-projects.",
+          extraContext: "An ambitious builder balancing academic commitments, career goal preparation, and personal creative side projects. Focused on optimizing daily execution and organizing complex timelines.",
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -230,21 +263,7 @@ export default function App() {
       const fetchedGoals = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Goal[];
       
       setGoals(fetchedGoals);
-
-      // If goals list is empty, trigger pre-population automatically for sample experience
-      const prePopulatedKey = `compass_prepopulated_${uid}`;
-      const isPrepopulated = localStorage.getItem(prePopulatedKey) === "true";
-      if (fetchedGoals.length === 0 && !isPrepopulated) {
-        localStorage.setItem(prePopulatedKey, "true");
-        await prePopulateSampleData(uid);
-        // Refetch after pre-population
-        const resnap = await getDocs(q);
-        const refetched = resnap.docs.map(d => ({ id: d.id, ...d.data() })) as Goal[];
-        setGoals(refetched);
-        await fetchAllTasks(refetched, uid);
-      } else {
-        await fetchAllTasks(fetchedGoals, uid);
-      }
+      await fetchAllTasks(fetchedGoals, uid);
 
       await fetchStandaloneTodos(uid);
       loadHabitsAndStreak(uid);
@@ -257,12 +276,12 @@ export default function App() {
         console.warn("Activating Local Sandbox Mode fallback due to goals fetch failure.");
         localStorage.setItem("compass_local_mode", "true");
         
-        const localUid = uid || "local_yashita_grader";
+        const localUid = uid || "local_sandbox_user";
         setUser({
           uid: localUid,
-          email: "yashitaloya@gmail.com",
+          email: "sandbox@compass.app",
           isAnonymous: true,
-          displayName: "Yashita (Local Sandbox)"
+          displayName: "Sandbox Explorer"
         });
 
         const demoProfile: UserProfile = {
@@ -270,7 +289,7 @@ export default function App() {
           role: "Student",
           aiStyle: "Balanced",
           categoryTabs: ["Academics", "Career", "Side Projects", "Personal"],
-          extraContext: "Yashita, 20. Dual degree in Engineering + Economics. Under massive overload prepping macro midsems and shipping side-projects.",
+          extraContext: "An ambitious builder balancing academic commitments, career goal preparation, and personal creative side projects. Focused on optimizing daily execution and organizing complex timelines.",
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -343,6 +362,7 @@ export default function App() {
       userId: user.uid,
       title: newTodoTitle.trim(),
       priority: newTodoPriority,
+      notes: newTodoNotes.trim() || null,
       completed: false,
       createdAt: new Date().toISOString()
     };
@@ -359,6 +379,7 @@ export default function App() {
       localStorage.setItem(`compass_todos_${user.uid}`, JSON.stringify(updated));
     }
     setNewTodoTitle("");
+    setNewTodoNotes("");
   };
 
   // Toggle Standalone Todo
@@ -387,6 +408,41 @@ export default function App() {
     } catch (err) {
       console.error("Failed to delete todo:", err);
     }
+  };
+
+  // Expand Standalone Todo Detail View
+  const handleExpandTodo = (todo: any) => {
+    if (expandedTodoId === todo.id) {
+      setExpandedTodoId(null);
+    } else {
+      setExpandedTodoId(todo.id);
+      setEditingTodoTitle(todo.title);
+      setEditingTodoPriority(todo.priority || "Medium");
+      setEditingTodoNotes(todo.notes || "");
+    }
+  };
+
+  // Save Standalone Todo Details
+  const handleSaveTodoDetails = async (todoId: string) => {
+    if (!editingTodoTitle.trim() || !user) return;
+    const updated = standaloneTodos.map(todo => {
+      if (todo.id === todoId) {
+        const updatedTodo = {
+          ...todo,
+          title: editingTodoTitle.trim(),
+          priority: editingTodoPriority,
+          notes: editingTodoNotes.trim() || null,
+          updatedAt: new Date().toISOString()
+        };
+        setDoc(doc(db, "daily_todos", todoId), updatedTodo).catch(err => 
+          console.error("Failed to update todo details in database:", err)
+        );
+        return updatedTodo;
+      }
+      return todo;
+    });
+    setStandaloneTodos(updated);
+    localStorage.setItem(`compass_todos_${user.uid}`, JSON.stringify(updated));
   };
 
   // Toggle Goal Task Status from Dashboard
@@ -426,22 +482,49 @@ export default function App() {
   // Habits & Streaks
   const loadHabitsAndStreak = (uid: string) => {
     const today = new Date().toISOString().split("T")[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
     const checkedKey = `compass_habits_${uid}_${today}`;
-    const streakKey = `compass_streak_${uid}`;
     
     const checked = localStorage.getItem(checkedKey);
     setCheckedHabits(checked ? JSON.parse(checked) : []);
     
-    const streak = localStorage.getItem(streakKey);
-    setStreakCount(streak ? parseInt(streak, 10) : 3);
+    const habitsList = ["habit_checkin", "habit_focus", "habit_reflection"];
+    const streaks: Record<string, number> = {};
+    
+    habitsList.forEach((habitId) => {
+      const streakKey = `compass_habit_streak_${uid}_${habitId}`;
+      const lastDateKey = `compass_habit_last_date_${uid}_${habitId}`;
+      
+      const storedStreakStr = localStorage.getItem(streakKey);
+      let streak = storedStreakStr ? parseInt(storedStreakStr, 10) : 0;
+      const lastDate = localStorage.getItem(lastDateKey);
+      
+      // If the last activity date exists and is older than yesterday, the streak is broken
+      if (lastDate && lastDate !== today && lastDate !== yesterday) {
+        streak = 0;
+        localStorage.setItem(streakKey, "0");
+      }
+      
+      streaks[habitId] = streak;
+    });
+    
+    setHabitStreaks(streaks);
+    
+    // Maintain maximum streak for TrophyCase compatibility
+    const maxStreak = Math.max(...Object.values(streaks), 0);
+    setStreakCount(maxStreak);
+    localStorage.setItem(`compass_streak_${uid}`, maxStreak.toString());
   };
 
   const handleToggleHabit = (habitId: string) => {
+    if (!user) return;
     const today = new Date().toISOString().split("T")[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
     const checkedKey = `compass_habits_${user.uid}_${today}`;
-    const streakKey = `compass_streak_${user.uid}`;
     
     let updated = [...checkedHabits];
+    const isNowChecked = !updated.includes(habitId);
+    
     if (updated.includes(habitId)) {
       updated = updated.filter(h => h !== habitId);
     } else {
@@ -450,16 +533,66 @@ export default function App() {
     setCheckedHabits(updated);
     localStorage.setItem(checkedKey, JSON.stringify(updated));
     
-    // Automatically manage streaks
-    if (updated.length === 3) {
-      const newStreak = streakCount + 1;
-      setStreakCount(newStreak);
+    const streakKey = `compass_habit_streak_${user.uid}_${habitId}`;
+    const lastDateKey = `compass_habit_last_date_${user.uid}_${habitId}`;
+    const prevStreakKey = `compass_habit_prev_streak_${user.uid}_${habitId}`;
+    const prevLastDateKey = `compass_habit_prev_last_date_${user.uid}_${habitId}`;
+    
+    const storedStreakStr = localStorage.getItem(streakKey);
+    const currentStreak = storedStreakStr ? parseInt(storedStreakStr, 10) : 0;
+    const lastDate = localStorage.getItem(lastDateKey);
+    
+    let newStreak = currentStreak;
+    
+    if (isNowChecked) {
+      // User is marking the habit as COMPLETED today
+      // Save rollback state first
+      localStorage.setItem(prevStreakKey, currentStreak.toString());
+      localStorage.setItem(prevLastDateKey, lastDate || "");
+      
+      if (lastDate === today) {
+        // Already completed today, no streak change
+      } else if (lastDate === yesterday) {
+        // Completed yesterday, increment streak
+        newStreak = currentStreak + 1;
+      } else {
+        // First completion or streak was broken, start at 1
+        newStreak = 1;
+      }
+      
       localStorage.setItem(streakKey, newStreak.toString());
-    } else if (checkedHabits.length === 3 && updated.length < 3) {
-      const newStreak = Math.max(0, streakCount - 1);
-      setStreakCount(newStreak);
-      localStorage.setItem(streakKey, newStreak.toString());
+      localStorage.setItem(lastDateKey, today);
+    } else {
+      // User is UNCHECKING the habit for today
+      // Rollback to previous state
+      const prevStreakStr = localStorage.getItem(prevStreakKey);
+      const prevLastDate = localStorage.getItem(prevLastDateKey);
+      
+      if (prevStreakStr !== null) {
+        newStreak = parseInt(prevStreakStr, 10);
+        localStorage.setItem(streakKey, prevStreakStr);
+      } else {
+        newStreak = 0;
+        localStorage.setItem(streakKey, "0");
+      }
+      
+      if (prevLastDate) {
+        localStorage.setItem(lastDateKey, prevLastDate);
+      } else {
+        localStorage.removeItem(lastDateKey);
+      }
     }
+    
+    const updatedStreaks = {
+      ...habitStreaks,
+      [habitId]: newStreak,
+    };
+    setHabitStreaks(updatedStreaks);
+    
+    // Sync max streak with streakCount and old global key for TrophyCase
+    const maxStreak = Math.max(...Object.values(updatedStreaks), 0);
+    setStreakCount(maxStreak);
+    localStorage.setItem(`compass_streak_${user.uid}`, maxStreak.toString());
   };
 
   // Load/Generate Quote of the Day
@@ -511,9 +644,10 @@ export default function App() {
   const handleConnectGoogle = async (): Promise<string | null> => {
     try {
       const { GoogleAuthProvider } = await import("firebase/auth");
-      googleProvider.addScope("https://www.googleapis.com/auth/calendar.events");
-      googleProvider.addScope("https://www.googleapis.com/auth/tasks");
-      const result = await signInWithPopup(auth, googleProvider);
+      const syncProvider = new GoogleAuthProvider();
+      syncProvider.addScope("https://www.googleapis.com/auth/calendar.events");
+      syncProvider.addScope("https://www.googleapis.com/auth/tasks");
+      const result = await signInWithPopup(auth, syncProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken || null;
       if (token) {
@@ -528,15 +662,19 @@ export default function App() {
     }
   };
 
+  const handleDisconnectGoogle = () => {
+    setGoogleAccessToken(null);
+    localStorage.removeItem("google_access_token");
+  };
+
   // Google Login popup
   const handleGoogleLogin = async () => {
     try {
       localStorage.removeItem("compass_local_mode");
       setAuthLoading(true);
       const { GoogleAuthProvider } = await import("firebase/auth");
-      googleProvider.addScope("https://www.googleapis.com/auth/calendar.events");
-      googleProvider.addScope("https://www.googleapis.com/auth/tasks");
-      const result = await signInWithPopup(auth, googleProvider);
+      const loginProvider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, loginProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken || null;
       if (token) {
@@ -546,63 +684,6 @@ export default function App() {
     } catch (err: any) {
       console.error("Google Auth Error:", err);
       setError(err.message || "Failed to sign in via Google. Popups might be blocked in this environment.");
-      setAuthLoading(false);
-    }
-  };
-
-  // Fast Pass Anonymous Login for Sandboxed Iframe (Grading Stability)
-  const handleFastPassLogin = async () => {
-    try {
-      setAuthLoading(true);
-      const cred = await signInAnonymously(auth);
-      
-      // Auto-create profile for fast pass to mimic Yashita onboarding instantly
-      const demoProfile: UserProfile = {
-        userId: cred.user.uid,
-        role: "Student",
-        aiStyle: "Balanced",
-        categoryTabs: ["Academics", "Career", "Side Projects", "Personal"],
-        extraContext: "Yashita, 20. Dual degree in Engineering + Economics. Under massive overload prepping macro midsems and shipping side-projects.",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      await setDoc(doc(db, "profiles", cred.user.uid), demoProfile);
-      setProfile(demoProfile);
-      await fetchUserGoals(cred.user.uid, demoProfile);
-    } catch (err: any) {
-      console.error("Fast Pass Error:", err);
-      if (err.code === "auth/admin-restricted-operation" || err.message?.includes("admin-restricted-operation")) {
-        console.warn("Anonymous auth disabled in Firebase console. Activating Local Sandbox Mode fallback.");
-        localStorage.setItem("compass_local_mode", "true");
-        
-        const localUid = "local_yashita_grader";
-        setUser({
-          uid: localUid,
-          email: "yashitaloya@gmail.com",
-          isAnonymous: true,
-          displayName: "Yashita (Local Sandbox)"
-        });
-        
-        const demoProfile: UserProfile = {
-          userId: localUid,
-          role: "Student",
-          aiStyle: "Balanced",
-          categoryTabs: ["Academics", "Career", "Side Projects", "Personal"],
-          extraContext: "Yashita, 20. Dual degree in Engineering + Economics. Under massive overload prepping macro midsems and shipping side-projects.",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        const dbKey = "compass_db_profiles";
-        localStorage.setItem(dbKey, JSON.stringify([demoProfile]));
-        
-        setProfile(demoProfile);
-        await fetchUserGoals(localUid, demoProfile);
-      } else {
-        setError("Failed to initialize Fast Pass. " + err.message);
-      }
-    } finally {
       setAuthLoading(false);
     }
   };
@@ -746,6 +827,7 @@ export default function App() {
   twoWeeksFromNow.setDate(today.getDate() + 14);
 
   const upcomingHighPriorityGoals = activeHighPriorityGoals.filter((g) => {
+    if (!g.targetDate) return false;
     const deadline = new Date(g.targetDate);
     return deadline >= today && deadline <= twoWeeksFromNow;
   });
@@ -899,7 +981,6 @@ export default function App() {
               </button>
             </div>
 
-
           </div>
 
           {/* Footer: Divider */}
@@ -917,7 +998,7 @@ export default function App() {
     return (
       <Onboarding
         userId={user.uid}
-        userEmail={user.email || "yashitaloya@gmail.com"}
+        userEmail={user.email || "sandbox@compass.app"}
         onComplete={handleOnboardingComplete}
         isLightTheme={isLightTheme}
         setIsLightTheme={setIsLightTheme}
@@ -934,7 +1015,7 @@ export default function App() {
     <div className="h-screen bg-theme-bg-app flex flex-col text-theme-text-main font-sans overflow-hidden transition-colors duration-300">
       {/* Top Main Navigation Bar */}
       <header className="bg-theme-bg-panel border-b border-theme-border-main sticky top-0 z-30 shrink-0 transition-colors duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -950,9 +1031,6 @@ export default function App() {
               <span className="text-base font-bold text-theme-text-main tracking-tight font-display">
                 COMPASS
               </span>
-              <span className="text-[9px] font-mono font-bold text-theme-text-muted-mono ml-2 border border-theme-border-main px-1.5 py-0.5 rounded-full uppercase">
-                v1.0 stable
-              </span>
             </div>
           </div>
  
@@ -960,7 +1038,7 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div className="hidden md:flex items-center gap-2 text-right">
               <div className="text-xs font-semibold text-theme-text-main">
-                {user.isAnonymous ? "Yashita (Grader Pass)" : user.displayName || user.email}
+                {user.isAnonymous ? (user.displayName || "Sandbox Explorer") : user.displayName || user.email}
               </div>
               <div className="text-[10px] text-theme-text-muted font-mono font-bold uppercase">
                 {profile.role}
@@ -996,15 +1074,19 @@ export default function App() {
         
         {/* Collapsible Sidebar Navigation */}
         <aside 
-          className={`bg-theme-bg-panel border-r border-theme-border-main shrink-0 transition-all duration-300 ease-in-out flex flex-row md:flex-col justify-between p-3 md:p-4 border-b md:border-b-0 border-theme-border-subtle overflow-x-auto md:overflow-y-auto ${
-            isSidebarCollapsed ? "w-full md:w-16 h-auto md:h-full" : "w-full md:w-64 h-auto md:h-full"
+          className={`bg-theme-bg-panel border-r border-theme-border-main shrink-0 transition-all duration-300 ease-in-out flex flex-row md:flex-col justify-between border-b md:border-b-0 border-theme-border-subtle overflow-x-auto md:overflow-y-auto ${
+            isSidebarCollapsed ? "w-full md:w-16 h-auto md:h-full p-3 md:py-4 md:px-2" : "w-full md:w-64 h-auto md:h-full p-3 md:p-4"
           }`}
         >
           {/* Sidebar Nav Buttons Container */}
           <div className="flex md:flex-col gap-2 md:space-y-2.5 items-center md:items-stretch w-full">
             <button
               onClick={() => { setActiveTab('dashboard'); setActiveGoal(null); }}
-              className={`px-3 py-2.5 text-xs font-bold rounded-xl transition flex items-center gap-2.5 whitespace-nowrap w-full cursor-pointer ${
+              className={`text-xs font-bold rounded-xl transition flex items-center whitespace-nowrap w-full cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "justify-center px-2 py-2.5 md:px-0 md:py-3 md:justify-center" 
+                  : "justify-start px-3 py-2.5 gap-2.5"
+              } ${
                 activeTab === 'dashboard'
                   ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
                   : "text-theme-text-muted hover:text-theme-text-main hover:bg-theme-bg-card-hover"
@@ -1024,7 +1106,11 @@ export default function App() {
  
             <button
               onClick={() => { setActiveTab('goals'); setActiveGoal(null); }}
-              className={`px-3 py-2.5 text-xs font-bold rounded-xl transition flex items-center gap-2.5 whitespace-nowrap w-full cursor-pointer ${
+              className={`text-xs font-bold rounded-xl transition flex items-center whitespace-nowrap w-full cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "justify-center px-2 py-2.5 md:px-0 md:py-3 md:justify-center" 
+                  : "justify-start px-3 py-2.5 gap-2.5"
+              } ${
                 activeTab === 'goals'
                   ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
                   : "text-theme-text-muted hover:text-theme-text-main hover:bg-theme-bg-card-hover"
@@ -1044,7 +1130,11 @@ export default function App() {
  
             <button
               onClick={() => { setActiveTab('analytics'); setActiveGoal(null); }}
-              className={`px-3 py-2.5 text-xs font-bold rounded-xl transition flex items-center gap-2.5 whitespace-nowrap w-full cursor-pointer ${
+              className={`text-xs font-bold rounded-xl transition flex items-center whitespace-nowrap w-full cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "justify-center px-2 py-2.5 md:px-0 md:py-3 md:justify-center" 
+                  : "justify-start px-3 py-2.5 gap-2.5"
+              } ${
                 activeTab === 'analytics'
                   ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
                   : "text-theme-text-muted hover:text-theme-text-main hover:bg-theme-bg-card-hover"
@@ -1064,7 +1154,11 @@ export default function App() {
  
             <button
               onClick={() => { setActiveTab('calendar'); setActiveGoal(null); }}
-              className={`px-3 py-2.5 text-xs font-bold rounded-xl transition flex items-center gap-2.5 whitespace-nowrap w-full cursor-pointer ${
+              className={`text-xs font-bold rounded-xl transition flex items-center whitespace-nowrap w-full cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "justify-center px-2 py-2.5 md:px-0 md:py-3 md:justify-center" 
+                  : "justify-start px-3 py-2.5 gap-2.5"
+              } ${
                 activeTab === 'calendar'
                   ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
                   : "text-theme-text-muted hover:text-theme-text-main hover:bg-theme-bg-card-hover"
@@ -1077,7 +1171,11 @@ export default function App() {
  
             <button
               onClick={() => { setActiveTab('assessment'); setActiveGoal(null); }}
-              className={`px-3 py-2.5 text-xs font-bold rounded-xl transition flex items-center gap-2.5 whitespace-nowrap w-full cursor-pointer ${
+              className={`text-xs font-bold rounded-xl transition flex items-center whitespace-nowrap w-full cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "justify-center px-2 py-2.5 md:px-0 md:py-3 md:justify-center" 
+                  : "justify-start px-3 py-2.5 gap-2.5"
+              } ${
                 activeTab === 'assessment'
                   ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
                   : "text-theme-text-muted hover:text-theme-text-main hover:bg-theme-bg-card-hover"
@@ -1089,8 +1187,36 @@ export default function App() {
             </button>
  
             <button
+              onClick={() => { setActiveTab('trophy'); setActiveGoal(null); }}
+              className={`text-xs font-bold rounded-xl transition flex items-center whitespace-nowrap w-full cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "justify-center px-2 py-2.5 md:px-0 md:py-3 md:justify-center" 
+                  : "justify-start px-3 py-2.5 gap-2.5"
+              } ${
+                activeTab === 'trophy'
+                  ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
+                  : "text-theme-text-muted hover:text-theme-text-main hover:bg-theme-bg-card-hover"
+              }`}
+              title="Trophy Case & Badges"
+            >
+              <Trophy className="h-4 w-4 shrink-0" />
+              {!isSidebarCollapsed && <span className="truncate">Trophy Case</span>}
+              {!isSidebarCollapsed && goals.filter(g => g.progressPercentage === 100 || g.status === 'completed').length > 0 && (
+                <span className={`ml-auto text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full ${
+                  activeTab === 'trophy' ? "bg-theme-text-accent/20 text-theme-text-accent" : "bg-theme-border-main text-theme-text-muted"
+                }`}>
+                  {goals.filter(g => g.progressPercentage === 100 || g.status === 'completed').length}
+                </span>
+              )}
+            </button>
+ 
+            <button
               onClick={() => { setActiveTab('settings'); setActiveGoal(null); }}
-              className={`px-3 py-2.5 text-xs font-bold rounded-xl transition flex items-center gap-2.5 whitespace-nowrap w-full cursor-pointer ${
+              className={`text-xs font-bold rounded-xl transition flex items-center whitespace-nowrap w-full cursor-pointer ${
+                isSidebarCollapsed 
+                  ? "justify-center px-2 py-2.5 md:px-0 md:py-3 md:justify-center" 
+                  : "justify-start px-3 py-2.5 gap-2.5"
+              } ${
                 activeTab === 'settings'
                   ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
                   : "text-theme-text-muted hover:text-theme-text-main hover:bg-theme-bg-card-hover"
@@ -1101,7 +1227,7 @@ export default function App() {
               {!isSidebarCollapsed && <span className="truncate">Settings</span>}
             </button>
           </div>
- 
+
           {/* Collapsible Panel Toggle Trigger for Desktop */}
           <div className="hidden md:flex border-t border-theme-border-main pt-3 flex-col items-center justify-center w-full">
             <button
@@ -1121,7 +1247,7 @@ export default function App() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-theme-border-main pb-4">
             <div>
               <h1 className="text-xl font-bold font-display text-theme-text-main capitalize">
-                {activeGoal ? `Goal: ${activeGoal.title}` : activeTab.replace('-', ' ')}
+                {activeGoal ? `Goal: ${activeGoal.title}` : activeTab === 'trophy' ? 'Trophy Case' : activeTab.replace('-', ' ')}
               </h1>
               <p className="text-xs text-theme-text-muted mt-0.5">
                 {activeGoal 
@@ -1136,7 +1262,9 @@ export default function App() {
                           ? "Review roadmap deadlines, priorities, and schedule flow."
                           : activeTab === 'assessment'
                             ? "Conduct dynamic weekly assessments with direct AI feedback."
-                            : "Configure your personal development parameters and coaching preferences."
+                            : activeTab === 'trophy'
+                              ? "Celebrate achievements, unlock focus badges, and review personalized AI coaching tributes."
+                              : "Configure your personal development parameters and coaching preferences."
                 }
               </p>
             </div>
@@ -1187,6 +1315,11 @@ export default function App() {
                     <span className="text-[10px] font-mono font-bold text-brown-500 uppercase tracking-wider">Calibration Core</span>
                     <span className="text-[11px] font-semibold text-brown-750">Profile Tuning Engine</span>
                   </div>
+                ) : activeTab === 'trophy' ? (
+                  <div className="hidden md:flex flex-col text-right mr-3">
+                    <span className="text-[10px] font-mono font-bold text-brown-500 uppercase tracking-wider">Honor & Legacy</span>
+                    <span className="text-[11px] font-semibold text-brown-750">Permanent Victory Vault</span>
+                  </div>
                 ) : activeTab === 'dashboard' ? (
                   <>
                     <button
@@ -1201,9 +1334,9 @@ export default function App() {
                   <>
                     <button
                       onClick={() => setShowRebalanceModal(true)}
-                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-brown-300 bg-white hover:bg-beige-100 text-xs font-semibold text-brown-700 shadow-xs active:scale-95 transition cursor-pointer"
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-theme-border-main bg-theme-bg-panel hover:bg-theme-bg-card-hover text-xs font-semibold text-theme-text-main shadow-xs active:scale-95 transition cursor-pointer"
                     >
-                      <Sliders className="h-4 w-4 text-brown-600" />
+                      <Sliders className="h-4 w-4 text-theme-text-muted" />
                       <span>Rebalance Advisor</span>
                     </button>
                     <button
@@ -1221,30 +1354,31 @@ export default function App() {
 
           {/* Workload Conflict Banner (Rule-Based) - Re-aligned to be non-stressful, compact, and beautifully integrated */}
           {hasConflict && (
-            <div className="bg-beige-50/80 border border-brown-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
+            <div className="bg-alert-warning-bg border border-alert-warning-border text-alert-warning-text rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs shrink-0">
               <div className="flex gap-3">
-                <div className="h-9 w-9 rounded-xl bg-brown-100 text-brown-800 flex items-center justify-center shrink-0">
+                <div className="h-9 w-9 rounded-xl bg-theme-bg-card-hover text-alert-warning-text flex items-center justify-center shrink-0">
                   <Compass className="h-4.5 w-4.5 animate-spin-slow" />
                 </div>
-                <div style={{ backgroundColor: '#f9ece1' }}>
-                  <h4 className="text-xs font-bold text-brown-950">Mindful Pace & Flow Advisory</h4>
-                  <p className="text-[11px] text-brown-700 mt-0.5 max-w-2xl leading-relaxed">
+                <div>
+                  <h4 className="text-xs font-bold text-alert-warning-text font-display">Mindful Pace & Flow Advisory</h4>
+                  <p className="text-[11px] text-alert-warning-text/90 mt-0.5 max-w-2xl leading-relaxed">
                     You have <strong>{upcomingHighPriorityGoals.length} milestones</strong> approaching within the next fortnight. Take a moment to align your timeline for a calmer, more focused flow.
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setShowRebalanceModal(true)}
-                className="text-[11px] font-bold text-beige-50 bg-brown-900 hover:bg-brown-800 px-3.5 py-1.5 rounded-xl active:scale-95 transition shrink-0 shadow-3xs cursor-pointer"
+                className="text-[11px] font-bold bg-theme-bg-accent text-theme-text-accent hover:bg-theme-bg-accent-hover px-3.5 py-1.5 rounded-xl active:scale-95 transition shrink-0 shadow-3xs cursor-pointer"
               >
                 Align Schedule
               </button>
             </div>
           )}
 
-        {/* DETAILED GOAL PANEL VIEW OR GENERAL BENTO GRID */}
-        {activeGoal ? (
-          <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
+          {/* Wrapper to guarantee full natural height and prevent shrinking, eliminating footer overlaps */}
+          <div className="flex-1 flex flex-col gap-6 shrink-0">
+            {activeGoal ? (
+              <div className="bg-theme-bg-panel border border-theme-border-main rounded-2xl p-6 shadow-sm">
             <GoalDetail
               goal={activeGoal}
               profile={profile}
@@ -1252,13 +1386,14 @@ export default function App() {
               onUpdateGoalList={() => fetchUserGoals(user.uid, profile)}
               googleAccessToken={googleAccessToken}
               onConnectGoogle={handleConnectGoogle}
+              onDisconnectGoogle={handleDisconnectGoogle}
             />
             
             {/* Dangerous Zone Area in detail view */}
-            <div className="mt-12 pt-6 border-t border-neutral-100 flex justify-between items-center bg-red-50/20 -mx-6 -mb-6 p-6 rounded-b-2xl">
+            <div className="mt-12 pt-6 border-t border-theme-border-main flex justify-between items-center bg-red-50/10 dark:bg-red-950/10 -mx-6 -mb-6 p-6 rounded-b-2xl">
               <div>
-                <span className="text-xs font-bold text-red-900">Portfolio Housekeeping</span>
-                <p className="text-[11px] text-neutral-500 mt-0.5">
+                <span className="text-xs font-bold text-red-800 dark:text-red-400">Portfolio Housekeeping</span>
+                <p className="text-[11px] text-theme-text-muted mt-0.5">
                   {showDeleteGoalConfirm 
                     ? "Are you absolutely sure you want to permanently delete this goal?" 
                     : "Delete this goal if it is no longer part of your active life strategy."}
@@ -1268,7 +1403,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowDeleteGoalConfirm(false)}
-                    className="px-3 py-1.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-800 text-xs font-semibold rounded-lg transition cursor-pointer"
+                    className="px-3 py-1.5 bg-theme-bg-card border border-theme-border-main text-theme-text-main hover:bg-theme-bg-card-hover text-xs font-semibold rounded-lg transition cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -1282,7 +1417,7 @@ export default function App() {
               ) : (
                 <button
                   onClick={() => setShowDeleteGoalConfirm(true)}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 border border-red-200 hover:bg-red-50 text-red-800 text-xs font-semibold rounded-lg transition cursor-pointer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 border border-red-200 dark:border-red-900/30 hover:bg-red-50 dark:hover:bg-red-950/25 text-red-800 dark:text-red-400 text-xs font-semibold rounded-lg transition cursor-pointer"
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Delete Goal
                 </button>
@@ -1314,7 +1449,7 @@ export default function App() {
 
                     <div className="flex items-center justify-between mb-4 pr-16">
                       <div className="flex items-center gap-1.5">
-                        <Sparkles className="h-4 w-4 text-yellow-400" />
+                        <BookOpen className="h-4 w-4 text-yellow-400" />
                         <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-neutral-400">
                           Stoic Focus Recalibration
                         </span>
@@ -1334,20 +1469,20 @@ export default function App() {
                   </div>
 
                   {/* Widget 2: Habits and Streaks Builder */}
-                  <div className="border border-neutral-200 rounded-2xl p-6 shadow-sm" style={{ backgroundColor: '#f9ece1' }}>
+                  <div className="border border-theme-border-main bg-theme-bg-panel text-theme-text-main rounded-2xl p-6 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-900 shrink-0">
-                          <Flame className="h-4.5 w-4.5 text-orange-600 fill-orange-100" />
+                        <div className="h-8 w-8 rounded-lg bg-theme-bg-card-hover flex items-center justify-center text-theme-text-main shrink-0">
+                          <Flame className="h-4.5 w-4.5 text-orange-500 fill-orange-500/10" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-neutral-950 font-display">Habit & Streak Builder</h3>
-                          <p className="text-[10px] text-neutral-400">Establish daily consistency</p>
+                          <h3 className="text-sm font-bold text-theme-text-main font-display">Habit & Streak Builder</h3>
+                          <p className="text-[10px] text-theme-text-muted">Establish daily consistency</p>
                         </div>
                       </div>
-                      <div className="bg-orange-50 border border-orange-100 px-2.5 py-1 rounded-xl flex items-center gap-1 text-xs font-bold text-orange-700">
-                        <Flame className="h-4 w-4 fill-orange-600" />
-                        <span>{streakCount} Days</span>
+                      <div className="bg-orange-500/10 border border-orange-500/20 px-2.5 py-1 rounded-xl flex items-center gap-1 text-xs font-bold text-orange-500" title="Max streak of your individual habits">
+                        <Flame className="h-4 w-4 fill-orange-500" />
+                        <span>Max Streak: {streakCount} Days</span>
                       </div>
                     </div>
 
@@ -1364,80 +1499,97 @@ export default function App() {
                             onClick={() => handleToggleHabit(habit.id)}
                             className={`p-3.5 border rounded-xl flex items-start gap-3 cursor-pointer transition ${
                               isChecked 
-                                ? "bg-neutral-50/70 border-neutral-300" 
-                                : "bg-white border-neutral-150 hover:border-neutral-250"
+                                ? "bg-theme-bg-card-hover border-theme-border-main" 
+                                : "bg-theme-bg-panel border-theme-border-subtle hover:border-theme-border-main"
                             }`}
                           >
                             <div className={`mt-0.5 h-4 w-4 rounded border flex items-center justify-center transition shrink-0 ${
-                              isChecked ? "bg-neutral-950 border-neutral-950 text-white" : "border-neutral-300 bg-white"
+                              isChecked ? "bg-theme-bg-accent border-theme-bg-accent text-theme-text-accent" : "border-theme-border-main bg-theme-bg-panel"
                             }`}>
-                              {isChecked && <CheckCircle className="h-3 w-3 fill-current text-white" />}
+                              {isChecked && <CheckCircle className="h-3 w-3 fill-current text-theme-text-accent" />}
                             </div>
-                            <div>
-                              <span className={`block text-xs font-bold leading-none ${isChecked ? "text-neutral-500 line-through" : "text-neutral-950"}`}>
-                                {habit.title}
-                              </span>
-                              <span className="block text-[10px] text-neutral-400 mt-1.5">{habit.desc}</span>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`block text-xs font-bold leading-tight ${isChecked ? "text-theme-text-muted line-through" : "text-theme-text-main"}`}>
+                                  {habit.title}
+                                </span>
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-mono font-bold text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded-sm shrink-0" title="Individual habit streak">
+                                  <Flame className="h-3 w-3 fill-orange-500" />
+                                  {habitStreaks[habit.id] || 0}d
+                                </span>
+                              </div>
+                              <span className="block text-[10px] text-theme-text-muted mt-1.5">{habit.desc}</span>
                             </div>
                           </div>
                         );
                       })}
                     </div>
 
-                    <div className="mt-4 pt-3.5 border-t border-neutral-100 flex justify-between items-center text-[10px] font-mono text-neutral-500">
+                    <div className="mt-4 pt-3.5 border-t border-theme-border-subtle flex justify-between items-center text-[10px] font-mono text-theme-text-muted">
                       <span>Checked: {checkedHabits.length}/3 today</span>
-                      <span>{checkedHabits.length === 3 ? "Streak preserved!" : "Complete all to grow streak"}</span>
+                      <span>Each habit tracks its own daily streak</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Right Section (3/5 width): Daily Action Checklist */}
                 <div className="lg:col-span-3">
-                  <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm space-y-5 h-full">
+                  <div className="bg-theme-bg-panel border border-theme-border-main rounded-2xl p-6 shadow-sm space-y-5 h-full text-theme-text-main">
                     <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-900 shrink-0">
-                        <ListTodo className="h-4.5 w-4.5 text-neutral-800" />
+                      <div className="h-8 w-8 rounded-lg bg-theme-bg-card-hover flex items-center justify-center text-theme-text-main shrink-0">
+                        <ListTodo className="h-4.5 w-4.5 text-theme-text-muted" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-neutral-950 font-display">Daily Operator Checklist</h3>
-                        <p className="text-[10px] text-neutral-400">Aggregated task deliverables</p>
+                        <h3 className="text-sm font-bold text-theme-text-main font-display">Daily Operator Checklist</h3>
+                        <p className="text-[10px] text-theme-text-muted">Aggregated task deliverables</p>
                       </div>
                     </div>
 
                     {/* Quick Add Standalone Todo */}
-                    <div className="space-y-2 pt-1">
-                      <div className="flex gap-2">
+                    <div className="space-y-2 pt-1 bg-theme-bg-card-hover/40 p-3 rounded-xl border border-theme-border-subtle/50">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <input
                           type="text"
-                          className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-xs text-neutral-950 bg-white placeholder-neutral-400 focus:border-neutral-950 focus:outline-none focus:ring-1 focus:ring-neutral-950 shadow-2xs"
+                          className="flex-1 rounded-xl border border-theme-border-main px-3 py-2 text-xs text-theme-text-main bg-theme-bg-panel placeholder-theme-text-muted/50 focus:border-theme-bg-accent focus:outline-none focus:ring-1 focus:ring-theme-bg-accent shadow-2xs min-w-0"
                           placeholder="Add standalone today's task..."
                           value={newTodoTitle}
                           onChange={(e) => setNewTodoTitle(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && saveStandaloneTodo()}
                         />
-                        <select
-                          className="rounded-xl border border-neutral-200 px-2 py-2 text-xs font-semibold text-neutral-700 bg-white"
-                          value={newTodoPriority}
-                          onChange={(e) => setNewTodoPriority(e.target.value as any)}
-                        >
-                          <option value="High">High</option>
-                          <option value="Medium">Medium</option>
-                          <option value="Low">Low</option>
-                        </select>
-                        <button
-                          onClick={saveStandaloneTodo}
-                          disabled={!newTodoTitle.trim()}
-                          className="bg-neutral-950 text-white px-3.5 py-2 rounded-xl hover:bg-neutral-850 transition flex items-center justify-center shrink-0 disabled:opacity-50 text-xs font-bold"
-                        >
-                          <Plus className="h-4 w-4 mr-1" /> Add
-                        </button>
+                        <div className="flex gap-2 shrink-0">
+                          <select
+                            className="flex-1 sm:flex-none rounded-xl border border-theme-border-main px-2 py-2 text-xs font-semibold text-theme-text-muted bg-theme-bg-panel focus:border-theme-bg-accent focus:outline-none focus:ring-1 focus:ring-theme-bg-accent"
+                            value={newTodoPriority}
+                            onChange={(e) => setNewTodoPriority(e.target.value as any)}
+                          >
+                            <option value="High">High</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Low">Low</option>
+                          </select>
+                          <button
+                            onClick={saveStandaloneTodo}
+                            disabled={!newTodoTitle.trim()}
+                            className="bg-theme-bg-accent text-theme-text-accent px-3.5 py-2 rounded-xl hover:bg-theme-bg-accent-hover transition flex items-center justify-center shrink-0 disabled:opacity-50 text-xs font-bold cursor-pointer"
+                          >
+                            <Plus className="h-4 w-4" />
+                            <span className="hidden sm:inline ml-1">Add</span>
+                          </button>
+                        </div>
                       </div>
+                      <input
+                        type="text"
+                        className="w-full rounded-xl border border-theme-border-main px-3 py-1.5 text-xs text-theme-text-main bg-theme-bg-panel placeholder-theme-text-muted/50 focus:border-theme-bg-accent focus:outline-none focus:ring-1 focus:ring-theme-bg-accent shadow-2xs"
+                        placeholder="Add notes (optional)..."
+                        value={newTodoNotes}
+                        onChange={(e) => setNewTodoNotes(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && saveStandaloneTodo()}
+                      />
                     </div>
 
                     {/* Sub-section 1: Standalone To-Dos */}
                     {standaloneTodos.filter((todo) => !searchQuery || todo.title.toLowerCase().includes(searchQuery.toLowerCase())).length > 0 && (
                       <div className="space-y-2 pt-1">
-                        <span className="block text-[10px] font-mono font-bold text-neutral-400 uppercase tracking-wider">
+                        <span className="block text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider">
                           Personal Standalone Tasks ({standaloneTodos.filter((todo) => !searchQuery || todo.title.toLowerCase().includes(searchQuery.toLowerCase())).length})
                         </span>
                         <div className="space-y-1.5">
@@ -1446,31 +1598,112 @@ export default function App() {
                             .map((todo) => (
                             <div
                               key={todo.id}
-                              className="flex items-center justify-between p-3 border border-neutral-150 rounded-xl bg-neutral-50/30 group text-xs transition hover:border-neutral-200"
+                              className="p-3 border border-theme-border-subtle rounded-xl bg-theme-bg-card-hover group text-xs transition hover:border-theme-border-main text-theme-text-main"
                             >
-                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                <input
-                                  type="checkbox"
-                                  checked={todo.completed}
-                                  onChange={() => handleToggleStandaloneTodo(todo.id)}
-                                  className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 cursor-pointer shrink-0"
-                                />
-                                <span className={`truncate font-semibold text-xs ${todo.completed ? "text-neutral-400 line-through" : "text-neutral-950"}`}>
-                                  {todo.title}
-                                </span>
-                                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase ${
-                                  todo.priority === "High" ? "bg-red-50 text-red-700" :
-                                  todo.priority === "Medium" ? "bg-yellow-50 text-yellow-700" : "bg-green-50 text-green-700"
-                                }`}>
-                                  {todo.priority}
-                                </span>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={todo.completed}
+                                    onChange={() => handleToggleStandaloneTodo(todo.id)}
+                                    className="h-4 w-4 rounded border-theme-border-main text-theme-text-main focus:ring-theme-bg-accent cursor-pointer shrink-0 bg-theme-bg-panel"
+                                  />
+                                  <span 
+                                    className={`truncate font-semibold text-xs cursor-pointer ${todo.completed ? "text-theme-text-muted line-through" : "text-theme-text-main"}`}
+                                    onClick={() => handleExpandTodo(todo)}
+                                  >
+                                    {todo.title}
+                                  </span>
+                                  <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border uppercase ${
+                                    todo.priority === "High" ? "bg-alert-danger-bg text-alert-danger-text border-alert-danger-border" :
+                                    todo.priority === "Medium" ? "bg-alert-warning-bg text-alert-warning-text border-alert-warning-border" : 
+                                    "bg-alert-success-bg text-alert-success-text border-alert-success-border"
+                                  }`}>
+                                    {todo.priority}
+                                  </span>
+                                  {todo.notes && (
+                                    <span title="Has notes" className="flex shrink-0">
+                                      <FileText className="h-3.5 w-3.5 text-theme-text-muted" />
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    onClick={() => handleExpandTodo(todo)}
+                                    className="text-theme-text-muted hover:text-theme-text-main transition p-1 cursor-pointer"
+                                    title={expandedTodoId === todo.id ? "Collapse details" : "View details"}
+                                  >
+                                    {expandedTodoId === todo.id ? (
+                                      <ChevronUp className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteStandaloneTodo(todo.id)}
+                                    className="text-theme-text-muted hover:text-red-600 opacity-0 group-hover:opacity-100 focus:opacity-100 transition p-1 shrink-0 cursor-pointer"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                               </div>
-                              <button
-                                onClick={() => handleDeleteStandaloneTodo(todo.id)}
-                                className="text-neutral-400 hover:text-red-700 opacity-0 group-hover:opacity-100 transition p-1 shrink-0"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+
+                              {expandedTodoId === todo.id && (
+                                <div className="mt-2.5 pt-2.5 border-t border-theme-border-subtle space-y-3" onClick={(e) => e.stopPropagation()}>
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider block">
+                                      Task Title
+                                    </label>
+                                    <input
+                                      type="text"
+                                      className="w-full rounded-xl border border-theme-border-main px-3 py-1.5 text-xs text-theme-text-main bg-theme-bg-panel focus:border-theme-bg-accent focus:outline-none focus:ring-1 focus:ring-theme-bg-accent"
+                                      value={editingTodoTitle}
+                                      onChange={(e) => setEditingTodoTitle(e.target.value)}
+                                    />
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider block">
+                                      Notes
+                                    </label>
+                                    <textarea
+                                      className="w-full rounded-xl border border-theme-border-main p-2.5 text-xs text-theme-text-main bg-theme-bg-panel placeholder-theme-text-muted/50 focus:border-theme-bg-accent focus:outline-none focus:ring-1 focus:ring-theme-bg-accent shadow-2xs resize-none"
+                                      rows={3}
+                                      placeholder="No notes added. Type here to add..."
+                                      value={editingTodoNotes}
+                                      onChange={(e) => setEditingTodoNotes(e.target.value)}
+                                    />
+                                  </div>
+
+                                  <div className="flex gap-2 items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <label className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider">
+                                        Priority
+                                      </label>
+                                      <select
+                                        className="rounded-lg border border-theme-border-main px-2 py-1 text-[11px] font-semibold text-theme-text-muted bg-theme-bg-panel focus:border-theme-bg-accent focus:outline-none focus:ring-1 focus:ring-theme-bg-accent"
+                                        value={editingTodoPriority}
+                                        onChange={(e) => setEditingTodoPriority(e.target.value as any)}
+                                      >
+                                        <option value="High">High</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="Low">Low</option>
+                                      </select>
+                                    </div>
+
+                                    <button
+                                      onClick={() => {
+                                        handleSaveTodoDetails(todo.id);
+                                        setExpandedTodoId(null);
+                                      }}
+                                      disabled={!editingTodoTitle.trim()}
+                                      className="bg-theme-bg-accent text-theme-text-accent px-3 py-1 rounded-xl hover:bg-theme-bg-accent-hover transition text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                                    >
+                                      Save Details
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -1479,12 +1712,12 @@ export default function App() {
 
                     {/* Sub-section 2: Goal Action Deliverables (Aggregated) */}
                     <div className="space-y-2 pt-1">
-                      <span className="block text-[10px] font-mono font-bold text-neutral-400 uppercase tracking-wider">
+                      <span className="block text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider">
                         Goal Deliverables ({allTasks.filter(t => t.status === "pending" && (!searchQuery || t.title.toLowerCase().includes(searchQuery.toLowerCase()) || (t.goalTitle || "").toLowerCase().includes(searchQuery.toLowerCase()))).length} active)
                       </span>
                       
                       {allTasks.length === 0 ? (
-                        <p className="text-xs text-neutral-400 italic text-center py-6 border border-dashed border-neutral-200 rounded-xl">
+                        <p className="text-xs text-theme-text-muted italic text-center py-6 border border-dashed border-theme-border-main rounded-xl">
                           No active goal deliverables loaded.
                         </p>
                       ) : (
@@ -1500,20 +1733,20 @@ export default function App() {
                             .map((task) => (
                               <div
                                 key={task.id}
-                                className="p-3 border border-neutral-150 rounded-xl bg-white hover:border-neutral-250 transition shadow-2xs"
+                                className="p-3 border border-theme-border-subtle rounded-xl bg-theme-bg-panel hover:border-theme-border-main transition shadow-2xs text-theme-text-main"
                               >
                                 <div className="flex items-start gap-3">
                                   <input
                                     type="checkbox"
                                     checked={task.status === "completed"}
                                     onChange={() => handleToggleGoalTaskFromDashboard(task.goalId, task)}
-                                    className="mt-0.5 h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 cursor-pointer shrink-0"
+                                    className="mt-0.5 h-4 w-4 rounded border-theme-border-main text-theme-text-main focus:ring-theme-bg-accent cursor-pointer shrink-0 bg-theme-bg-panel"
                                   />
                                   <div className="min-w-0 flex-1">
-                                    <span className="block text-xs font-semibold text-neutral-800 leading-tight">
+                                    <span className="block text-xs font-semibold text-theme-text-main leading-tight">
                                       {task.title}
                                     </span>
-                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[9px] text-neutral-400 font-mono">
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[9px] text-theme-text-muted font-mono">
                                       <span 
                                         onClick={() => {
                                           const matchedGoal = goals.find(g => g.id === task.goalId);
@@ -1522,16 +1755,16 @@ export default function App() {
                                             setActiveTab('goals');
                                           }
                                         }}
-                                        className="text-neutral-500 hover:text-neutral-900 hover:underline cursor-pointer font-bold truncate max-w-[150px]" 
+                                        className="text-theme-text-muted hover:text-theme-text-main hover:underline cursor-pointer font-bold truncate max-w-[150px]" 
                                         title={task.goalTitle}
                                       >
                                         🎯 {task.goalTitle}
                                       </span>
                                       <span>&middot;</span>
-                                      <span className={`px-1.5 py-0.5 rounded uppercase font-bold text-[8px] ${
-                                        task.priority === "High" ? "bg-red-50 text-red-700 border border-red-100" :
-                                        task.priority === "Medium" ? "bg-yellow-50 text-yellow-700 border border-yellow-100" :
-                                        "bg-green-50 text-green-700 border border-green-100"
+                                      <span className={`px-1.5 py-0.5 rounded border uppercase font-bold text-[8px] ${
+                                        task.priority === "High" ? "bg-alert-danger-bg text-alert-danger-text border-alert-danger-border" :
+                                        task.priority === "Medium" ? "bg-alert-warning-bg text-alert-warning-text border-alert-warning-border" :
+                                        "bg-alert-success-bg text-alert-success-text border-alert-success-border"
                                       }`}>
                                         {task.priority}
                                       </span>
@@ -1554,13 +1787,13 @@ export default function App() {
             {activeTab === 'goals' && (
               <div className="space-y-6 animate-in fade-in duration-250">
                 {/* Filter Categories Horizontal Navigation */}
-                <div className="flex items-center gap-1.5 border-b border-neutral-200 pb-2 overflow-x-auto">
+                <div className="flex items-center gap-1.5 border-b border-theme-border-main pb-2 overflow-x-auto">
                   <button
                     onClick={() => setSelectedCategory("All")}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                       selectedCategory === "All"
-                        ? "bg-neutral-900 text-white shadow-xs"
-                        : "text-neutral-500 hover:text-neutral-900"
+                        ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
+                        : "text-theme-text-muted hover:text-theme-text-main"
                     }`}
                   >
                     All Goals ({goals.length})
@@ -1571,10 +1804,10 @@ export default function App() {
                       <button
                         key={cat}
                         onClick={() => setSelectedCategory(cat)}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                           selectedCategory === cat
-                            ? "bg-neutral-900 text-white shadow-xs"
-                            : "text-neutral-500 hover:text-neutral-900"
+                            ? "bg-theme-bg-accent text-theme-text-accent shadow-xs"
+                            : "text-theme-text-muted hover:text-theme-text-main"
                         }`}
                       >
                         {cat} ({count})
@@ -1585,15 +1818,15 @@ export default function App() {
 
                 {/* Empty State vs Bento Grid */}
                 {goalsLoading ? (
-                  <div className="text-center py-24 bg-white border border-neutral-200 rounded-2xl">
-                    <Loader2 className="h-8 w-8 text-neutral-900 animate-spin mx-auto mb-3" />
-                    <p className="text-sm text-neutral-500 font-medium">Querying Firestore collection streams...</p>
+                  <div className="text-center py-24 bg-theme-bg-panel border border-theme-border-main rounded-2xl text-theme-text-main">
+                    <Loader2 className="h-8 w-8 text-theme-text-main animate-spin mx-auto mb-3" />
+                    <p className="text-sm text-theme-text-muted font-medium">Querying Firestore collection streams...</p>
                   </div>
                 ) : goals.length === 0 ? (
-                  <div className="text-center py-20 bg-white border border-neutral-200 rounded-2xl max-w-lg mx-auto">
-                    <Compass className="h-10 w-10 text-neutral-300 mx-auto mb-3" />
-                    <h3 className="text-base font-bold text-neutral-950 font-display">No Active Goals</h3>
-                    <p className="text-xs text-neutral-500 max-w-xs mx-auto mt-1 leading-relaxed">
+                  <div className="text-center py-20 bg-theme-bg-panel border border-theme-border-main rounded-2xl max-w-lg mx-auto text-theme-text-main">
+                    <Compass className="h-10 w-10 text-theme-text-muted mx-auto mb-3 animate-pulse" />
+                    <h3 className="text-base font-bold text-theme-text-main font-display">No Active Goals</h3>
+                    <p className="text-xs text-theme-text-muted max-w-xs mx-auto mt-1 leading-relaxed">
                       Start by clicking the "Formulate Goal" button. COMPASS will leverage AI to design deep qualitative phases and individual action deliverables.
                     </p>
                   </div>
@@ -1608,10 +1841,11 @@ export default function App() {
                         return matchesCategory && matchesSearch;
                       })
                       .map((g) => {
-                        const daysRemaining = Math.ceil(
-                          (new Date(g.targetDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24)
-                        );
-                        const isOverdue = daysRemaining < 0;
+                        const hasTarget = g.targetDate && g.targetDate.trim() !== "";
+                        const daysRemaining = hasTarget
+                          ? Math.ceil((new Date(g.targetDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24))
+                          : null;
+                        const isOverdue = hasTarget && daysRemaining !== null && daysRemaining < 0;
 
                         const confidenceLabel = 
                           g.confidenceScore === 5 ? "Very High" :
@@ -1619,30 +1853,32 @@ export default function App() {
                           g.confidenceScore === 3 ? "Neutral" :
                           g.confidenceScore === 2 ? "Low" : "Very Low";
 
-                        const isGoalHighUrgency = g.priority === "High" && daysRemaining <= 14 && g.status === "active";
+                        const isGoalHighUrgency = g.priority === "High" && hasTarget && daysRemaining !== null && daysRemaining <= 14 && g.status === "active";
 
                         return (
                           <div
                             key={g.id}
                             onClick={() => { setActiveGoal(g); setShowDeleteGoalConfirm(false); }}
-                            className={`bg-white border rounded-2xl p-5 shadow-xs hover:shadow-md hover:border-neutral-3.5 cursor-pointer transition flex flex-col justify-between gap-4 group ${
-                              isGoalHighUrgency ? "ring-1 ring-red-200 border-red-300" : "border-neutral-200"
+                            className={`bg-theme-bg-panel border rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition flex flex-col justify-between gap-4 group ${
+                              isGoalHighUrgency 
+                                ? "ring-1 ring-alert-danger-border border-alert-danger-border" 
+                                : "border-theme-border-main hover:border-theme-text-muted-mono/50"
                             }`}
                           >
                             <div>
                               {/* Card Header metadata */}
                               <div className="flex items-center justify-between mb-2.5">
-                                <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase tracking-wider">
+                                <span className="text-[10px] font-mono font-bold text-theme-text-muted uppercase tracking-wider">
                                   {g.category}
                                 </span>
                                 <div className="flex gap-1">
                                   <span
                                     className={`text-[9px] font-mono font-bold border rounded px-1.5 py-0.5 uppercase ${
                                       g.priority === "High"
-                                        ? "bg-red-50 text-red-800 border-red-200"
+                                        ? "bg-alert-danger-bg text-alert-danger-text border-alert-danger-border"
                                         : g.priority === "Medium"
-                                        ? "bg-yellow-50 text-yellow-800 border-yellow-200"
-                                        : "bg-green-50 text-green-800 border-green-200"
+                                        ? "bg-alert-warning-bg text-alert-warning-text border-alert-warning-border"
+                                        : "bg-alert-success-bg text-alert-success-text border-alert-success-border"
                                     }`}
                                   >
                                     {g.priority}
@@ -1651,11 +1887,11 @@ export default function App() {
                               </div>
 
                               {/* Title & description */}
-                              <h3 className="text-sm font-bold text-neutral-950 font-display group-hover:text-neutral-900 group-hover:underline leading-snug">
+                              <h3 className="text-sm font-bold text-theme-text-main font-display group-hover:text-theme-text-main group-hover:underline leading-snug">
                                 {g.title}
                               </h3>
                               {g.description && (
-                                <p className="text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
+                                <p className="text-xs text-theme-text-muted mt-1 line-clamp-2 leading-relaxed">
                                   {g.description}
                                 </p>
                               )}
@@ -1665,30 +1901,32 @@ export default function App() {
                             <div className="space-y-2">
                               {/* Progress slider bar */}
                               <div>
-                                <div className="flex justify-between text-[10px] font-semibold text-neutral-500 mb-1">
+                                <div className="flex justify-between text-[10px] font-semibold text-theme-text-muted mb-1">
                                   <span>Delivered</span>
                                   <span>{g.progressPercentage}%</span>
                                 </div>
-                                <div className="w-full bg-neutral-100 h-1.5 rounded-full overflow-hidden">
+                                <div className="w-full bg-theme-bg-card-hover h-1.5 rounded-full overflow-hidden">
                                   <div
-                                    className="bg-neutral-950 h-full rounded-full"
+                                    className="bg-theme-bg-accent h-full rounded-full transition-all"
                                     style={{ width: `${g.progressPercentage}%` }}
                                   ></div>
                                 </div>
                               </div>
 
                               {/* Detail metrics footer */}
-                              <div className="flex justify-between items-center text-[10px] font-mono text-neutral-500 border-t border-neutral-100 pt-2.5">
+                              <div className="flex justify-between items-center text-[10px] font-mono text-theme-text-muted border-t border-theme-border-subtle pt-2.5">
                                 <span className="flex items-center gap-1">
-                                  <Clock className="h-3.5 w-3.5 text-neutral-400" />
-                                  {isOverdue ? (
-                                    <span className="text-red-600 font-semibold">Overdue</span>
+                                  <Clock className="h-3.5 w-3.5 text-theme-text-muted-mono" />
+                                  {!hasTarget ? (
+                                    <span>Flexible Timeline</span>
+                                  ) : isOverdue ? (
+                                    <span className="text-red-500 font-semibold">Overdue</span>
                                   ) : (
                                     <span>due in {daysRemaining} days</span>
                                   )}
                                 </span>
                                 <span className="flex items-center gap-0.5" title="Self-assessed confidence index">
-                                  Conf: <strong className="text-neutral-800 text-xs">{confidenceLabel}</strong>
+                                  Conf: <strong className="text-theme-text-main text-xs">{confidenceLabel}</strong>
                                 </span>
                               </div>
                             </div>
@@ -1716,6 +1954,7 @@ export default function App() {
                 goals={goals}
                 googleAccessToken={googleAccessToken}
                 onConnectGoogle={handleConnectGoogle}
+                onDisconnectGoogle={handleDisconnectGoogle}
               />
             )}
 
@@ -1728,6 +1967,7 @@ export default function App() {
                 onAccountDeleted={handleLogout}
                 googleAccessToken={googleAccessToken}
                 onConnectGoogle={handleConnectGoogle}
+                onDisconnectGoogle={handleDisconnectGoogle}
               />
             )}
 
@@ -1738,13 +1978,24 @@ export default function App() {
                 goals={goals}
               />
             )}
+
+            {/* Tab content 7: Trophy Case & Achievements Tab */}
+            {activeTab === 'trophy' && (
+              <TrophyCase
+                userId={user.uid}
+                goals={goals}
+                profile={profile}
+                allTasks={allTasks}
+              />
+            )}
           </>
         )}
+        </div>
 
-        {/* FOOTER METADATA */}
-        <footer className="border-t border-brown-200 py-6 mt-12 shrink-0">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-brown-500 font-medium">
-            COMPASS Goal Planner Engine &middot; Real-time secure Firestore matrix sync &middot; AI Coach leverages Gemini 2.0
+        {/* FOOTER */}
+        <footer className="border-t border-theme-border-subtle py-6 mt-16 shrink-0 bg-theme-bg-panel text-theme-text-muted rounded-2xl">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-theme-text-muted font-medium">
+            COMPASS Goal Planner &middot; Empowering structured milestone execution
           </div>
         </footer>
 

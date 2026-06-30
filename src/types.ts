@@ -64,6 +64,7 @@ export interface GoalTask {
   createdAt: string;
   updatedAt: string;
   googleTaskId?: string | null;
+  googleEventId?: string | null;
 }
 
 export interface GoalResource {
@@ -137,5 +138,6 @@ export interface CalendarEvent {
   associatedGoalId?: string;
   createdAt: string;
   googleEventId?: string | null;
+  googleTaskId?: string | null;
 }
 

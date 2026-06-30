@@ -31,7 +31,6 @@ import {
   Zap,
   Target,
   ArrowRight,
-  Sparkles,
   ShieldCheck,
   CheckCircle,
   Clock,
@@ -117,6 +116,7 @@ export default function PortfolioAnalytics({
 
   // 4. Chart Dataset C: Target Deadlines & Confidence mapping
   const timelineDataset = activeGoals
+    .filter(g => g.targetDate && g.targetDate.trim() !== "")
     .map(g => {
       const daysRemaining = Math.ceil(
         (new Date(g.targetDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24)
@@ -483,7 +483,7 @@ export default function PortfolioAnalytics({
       <div className="bg-theme-bg-card border border-theme-border-main rounded-2xl p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-lg bg-theme-bg-accent text-theme-text-accent flex items-center justify-center">
-            <Sparkles className="h-4 w-4" />
+            <Compass className="h-4 w-4" />
           </div>
           <div>
             <h3 className="text-sm font-bold text-theme-text-main font-display">AI Coach Strategic Diagnostic</h3>
@@ -496,23 +496,23 @@ export default function PortfolioAnalytics({
             <div 
               key={index}
               className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
-                diag.type === "danger" ? "bg-red-50/50 border-red-200 dark:bg-red-950/20 dark:border-red-900/50" :
-                diag.type === "warning" ? "bg-amber-50/40 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50" :
-                diag.type === "success" ? "bg-green-50/50 border-green-200 dark:bg-green-950/20 dark:border-green-900/50" :
+                diag.type === "danger" ? "bg-[var(--alert-danger-bg)] border-[var(--alert-danger-border)]" :
+                diag.type === "warning" ? "bg-[var(--alert-warning-bg)] border-[var(--alert-warning-border)]" :
+                diag.type === "success" ? "bg-[var(--alert-success-bg)] border-[var(--alert-success-border)]" :
                 "bg-theme-bg-card-hover border-theme-border-subtle"
               }`}
             >
               <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
-                  {diag.type === "danger" && <AlertTriangle className="h-4.5 w-4.5 text-red-600 dark:text-red-400" />}
-                  {diag.type === "warning" && <AlertTriangle className="h-4.5 w-4.5 text-amber-600 dark:text-amber-400" />}
-                  {diag.type === "success" && <ShieldCheck className="h-4.5 w-4.5 text-green-600 dark:text-green-400" />}
-                  {diag.type === "info" && <Compass className="h-4.5 w-4.5 text-theme-text-muted-mono dark:text-brown-400" />}
+                  {diag.type === "danger" && <AlertTriangle className="h-4.5 w-4.5 text-[var(--alert-danger-text)]" />}
+                  {diag.type === "warning" && <AlertTriangle className="h-4.5 w-4.5 text-[var(--alert-warning-text)]" />}
+                  {diag.type === "success" && <ShieldCheck className="h-4.5 w-4.5 text-[var(--alert-success-text)]" />}
+                  {diag.type === "info" && <Compass className="h-4.5 w-4.5 text-theme-text-muted-mono" />}
                   
                   <span className={`text-xs font-bold ${
-                    diag.type === "danger" ? "text-red-950 dark:text-red-200" :
-                    diag.type === "warning" ? "text-amber-950 dark:text-amber-200" :
-                    diag.type === "success" ? "text-green-950 dark:text-green-200" :
+                    diag.type === "danger" ? "text-[var(--alert-danger-text)]" :
+                    diag.type === "warning" ? "text-[var(--alert-warning-text)]" :
+                    diag.type === "success" ? "text-[var(--alert-success-text)]" :
                     "text-theme-text-main"
                   }`}>
                     {diag.title}
@@ -523,8 +523,9 @@ export default function PortfolioAnalytics({
                 </p>
               </div>
               
-              <div className="text-[10px] font-medium leading-relaxed bg-white/60 dark:bg-black/20 p-2.5 border border-dashed rounded-lg border-theme-border-subtle mt-1 text-theme-text-muted">
-                <span className="font-bold text-theme-text-main">Recommendation:</span> {diag.tip}
+              <div className="text-[10px] font-medium leading-relaxed bg-theme-bg-app border border-dashed rounded-lg border-theme-border-main p-2.5 mt-1">
+                <span className="font-bold text-theme-text-main">Recommendation: </span>
+                <span className="text-theme-text-muted">{diag.tip}</span>
               </div>
             </div>
           ))}

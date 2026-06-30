@@ -15,6 +15,31 @@ export const getNextDayDateString = (dateStr: string): string => {
 };
 
 /**
+ * Custom error class to identify Google API Authentication (401) failures.
+ */
+export class GoogleAuthError extends Error {
+  status: number;
+  constructor(message: string, status: number = 401) {
+    super(message);
+    this.name = "GoogleAuthError";
+    this.status = status;
+  }
+}
+
+/**
+ * Utility helper to assert response success and handle 401 authorization issues.
+ */
+export async function checkResponse(res: Response, defaultMsg: string): Promise<void> {
+  if (!res.ok) {
+    const errorText = await res.text();
+    if (res.status === 401) {
+      throw new GoogleAuthError(`GoogleAuthError: 401 Unauthenticated - ${res.statusText} (${errorText})`, 401);
+    }
+    throw new Error(`${defaultMsg}: ${res.statusText} (${errorText})`);
+  }
+}
+
+/**
  * Lists the user's Google Task lists and searches for one titled "COMPASS Goals".
  * If not found, creates it.
  */
@@ -26,6 +51,9 @@ export async function getOrCreateCompassTaskList(token: string): Promise<string>
       const res = await fetch(`https://tasks.googleapis.com/tasks/v1/users/@me/lists`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        throw new GoogleAuthError("GoogleAuthError: 401 Unauthenticated (cached verification)", 401);
+      }
       if (res.ok) {
         const data = await res.json();
         const exists = data.items?.some((item: any) => item.id === cachedId);
@@ -34,6 +62,9 @@ export async function getOrCreateCompassTaskList(token: string): Promise<string>
         }
       }
     } catch (err) {
+      if (err instanceof GoogleAuthError) {
+        throw err;
+      }
       console.warn("Failed to verify Google task list, falling back to cached value:", err);
       return cachedId;
     }
@@ -44,10 +75,7 @@ export async function getOrCreateCompassTaskList(token: string): Promise<string>
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Failed to fetch Google task lists: ${res.statusText} (${errorText})`);
-  }
+  await checkResponse(res, "Failed to fetch Google task lists");
 
   const data = await res.json();
   const existingList = data.items?.find((item: any) => item.title === "COMPASS Goals");
@@ -67,10 +95,7 @@ export async function getOrCreateCompassTaskList(token: string): Promise<string>
     body: JSON.stringify({ title: "COMPASS Goals" }),
   });
 
-  if (!createRes.ok) {
-    const errorText = await createRes.text();
-    throw new Error(`Failed to create COMPASS Goals task list: ${createRes.statusText} (${errorText})`);
-  }
+  await checkResponse(createRes, "Failed to create COMPASS Goals task list");
 
   const newList = await createRes.json();
   localStorage.setItem("compass_google_task_list_id", newList.id);
@@ -124,18 +149,12 @@ export async function syncTaskToGoogle(
           body: JSON.stringify(body),
         }
       );
-      if (!recreateRes.ok) {
-        throw new Error(`Failed to recreate deleted task: ${recreateRes.statusText}`);
-      }
+      await checkResponse(recreateRes, "Failed to recreate deleted task");
       const data = await recreateRes.json();
       return data.id;
     }
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Failed to update Google Task: ${res.statusText} (${errorText})`);
-    }
-
+    await checkResponse(res, "Failed to update Google Task");
     return task.googleTaskId;
   } else {
     // Create new task
@@ -148,10 +167,7 @@ export async function syncTaskToGoogle(
       body: JSON.stringify(body),
     });
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Failed to create Google Task: ${res.statusText} (${errorText})`);
-    }
+    await checkResponse(res, "Failed to create Google Task");
 
     const data = await res.json();
     return data.id;
@@ -168,15 +184,20 @@ export async function deleteTaskFromGoogle(
 ): Promise<void> {
   try {
     const listId = taskListId || (await getOrCreateCompassTaskList(token));
-    await fetch(
+    const res = await fetch(
       `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${googleTaskId}`,
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       }
     );
+    // Ignore or handle auth errors
+    if (res.status === 401) {
+      throw new GoogleAuthError("GoogleAuthError: 401 Unauthenticated on task deletion", 401);
+    }
   } catch (err) {
     console.error("Failed to delete task from Google Tasks:", err);
+    throw err; // Propagate auth errors if needed
   }
 }
 
@@ -227,18 +248,12 @@ export async function syncCalendarEventToGoogle(
           body: JSON.stringify(body),
         }
       );
-      if (!recreateRes.ok) {
-        throw new Error(`Failed to recreate calendar event: ${recreateRes.statusText}`);
-      }
+      await checkResponse(recreateRes, "Failed to recreate calendar event");
       const data = await recreateRes.json();
       return data.id;
     }
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Failed to update calendar event: ${res.statusText} (${errorText})`);
-    }
-
+    await checkResponse(res, "Failed to update calendar event");
     return event.googleEventId;
   } else {
     // Create new Google Calendar event
@@ -254,10 +269,7 @@ export async function syncCalendarEventToGoogle(
       }
     );
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Failed to create calendar event: ${res.statusText} (${errorText})`);
-    }
+    await checkResponse(res, "Failed to create calendar event");
 
     const data = await res.json();
     return data.id;
@@ -272,14 +284,18 @@ export async function deleteCalendarEventFromGoogle(
   token: string
 ): Promise<void> {
   try {
-    await fetch(
+    const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`,
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       }
     );
+    if (res.status === 401) {
+      throw new GoogleAuthError("GoogleAuthError: 401 Unauthenticated on calendar deletion", 401);
+    }
   } catch (err) {
     console.error("Failed to delete event from Google Calendar:", err);
+    throw err;
   }
 }

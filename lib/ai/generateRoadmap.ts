@@ -70,7 +70,7 @@ Title: ${goal.title}
 Description: ${goal.description || "None."}
 Category: ${goal.category}
 Priority: ${goal.priority}
-Target completion date: ${goal.targetDate}
+Target completion date: ${goal.targetDate || "No target date specified. Set a realistic and grounded timeline from today."}
 Today's date: ${new Date().toISOString().split("T")[0]}
 
 USER PROFILE:

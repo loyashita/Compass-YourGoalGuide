@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -6,15 +9,20 @@ import { GoogleGenAI } from "@google/genai";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, collection } from "firebase/firestore";
 
-// Load environment variables
-import dotenv from "dotenv";
-dotenv.config();
+// PostgreSQL & Drizzle Database Imports
+import { db } from "./src/db/index.ts";
+import { getOrCreateUser } from "./src/db/users.ts";
+import { requireAuth, AuthRequest } from "./src/middleware/auth.ts";
+import * as schema from "./src/db/schema.ts";
+import { eq, and, inArray, asc, desc } from "drizzle-orm";
+
 
 // Custom modular AI controllers
 import { executeRoadmapGeneration } from "./lib/ai/generateRoadmap";
 import { executeRebalance } from "./lib/prompts/rebalance";
 import { executeWeeklyReview } from "./lib/prompts/weekly-review";
 import { executeGoalChat } from "./lib/prompts/chat";
+import { executeVictoryPraise, generateFallbackVictoryPraise } from "./lib/prompts/victory-praise";
 
 const app = express();
 const PORT = 3000;
@@ -527,7 +535,7 @@ function generateFallbackChat(goal: any, profile: any, history: any[], message: 
   
   const genericOffTopic = [
     "weather", "joke", "pizza", "recipe", "cook", "capital of", "how to make", "who wrote", 
-    "trivia", "poem", "song", "movie", "game", "translate", "code in python", "javascript code", "html code", "css code"
+    "trivia", "poem", "song", "movie", "game", "translate"
   ];
   const hasOffTopicKeyword = genericOffTopic.some(kw => msgLower.includes(kw));
   const sharesContext = titleWords.some((word: string) => msgLower.includes(word)) || descWords.some((word: string) => msgLower.includes(word));
@@ -787,6 +795,315 @@ function generateFallbackCheckIn(goal: any, profile: any, tasks: any[]) {
 // API Endpoint: Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+// ==========================================
+// 🗄️ CLOUD SQL / POSTGRES DYNAMIC API BRIDGE
+// ==========================================
+
+const tablesMap: Record<string, any> = {
+  users: schema.users,
+  userProfiles: schema.userProfiles,
+  goals: schema.goals,
+  goalPhases: schema.goalPhases,
+  goalTasks: schema.goalTasks,
+  goalResources: schema.goalResources,
+  goalChats: schema.goalChats,
+  weeklyReviews: schema.weeklyReviews,
+  rebalanceHistories: schema.rebalanceHistories,
+  goalCheckIns: schema.goalCheckIns,
+  checkInSchedules: schema.checkInSchedules,
+  calendarEvents: schema.calendarEvents,
+  dailyTodos: schema.dailyTodos,
+};
+
+function mapPathToTableAndId(path: string) {
+  const parts = path.split("/");
+  
+  if (parts.length === 2 && parts[0] === "profiles") {
+    return { table: "userProfiles", idField: "id", idValue: parts[1], parentField: "userId", parentValue: parts[1] };
+  }
+  if (parts.length === 2 && parts[0] === "goals") {
+    return { table: "goals", idField: "id", idValue: parts[1] };
+  }
+  if (parts.length === 4 && parts[0] === "goals" && parts[2] === "phases") {
+    return { table: "goalPhases", idField: "id", idValue: parts[3], parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 4 && parts[0] === "goals" && parts[2] === "tasks") {
+    return { table: "goalTasks", idField: "id", idValue: parts[3], parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 4 && parts[0] === "goals" && parts[2] === "resources") {
+    return { table: "goalResources", idField: "id", idValue: parts[3], parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 4 && parts[0] === "goals" && parts[2] === "chats") {
+    return { table: "goalChats", idField: "id", idValue: parts[3], parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 4 && parts[0] === "goals" && parts[2] === "daily_checkins") {
+    return { table: "goalCheckIns", idField: "id", idValue: parts[3], parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 4 && parts[0] === "goals" && parts[2] === "schedules") {
+    return { table: "checkInSchedules", idField: "goalId", idValue: parts[1], parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 2 && parts[0] === "weekly_reviews") {
+    return { table: "weeklyReviews", idField: "id", idValue: parts[1] };
+  }
+  if (parts.length === 2 && parts[0] === "rebalance_history") {
+    return { table: "rebalanceHistories", idField: "id", idValue: parts[1] };
+  }
+  if (parts.length === 2 && parts[0] === "calendar_events") {
+    return { table: "calendarEvents", idField: "id", idValue: parts[1] };
+  }
+  if (parts.length === 2 && parts[0] === "daily_todos") {
+    return { table: "dailyTodos", idField: "id", idValue: parts[1] };
+  }
+  
+  throw new Error(`Unsupported database collection path: ${path}`);
+}
+
+function mapCollectionPathToTable(path: string) {
+  const parts = path.split("/");
+  
+  if (parts.length === 1 && parts[0] === "profiles") {
+    return { table: "userProfiles", parentField: "userId" };
+  }
+  if (parts.length === 1 && parts[0] === "goals") {
+    return { table: "goals" };
+  }
+  if (parts.length === 3 && parts[0] === "goals" && parts[2] === "phases") {
+    return { table: "goalPhases", parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 3 && parts[0] === "goals" && parts[2] === "tasks") {
+    return { table: "goalTasks", parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 3 && parts[0] === "goals" && parts[2] === "resources") {
+    return { table: "goalResources", parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 3 && parts[0] === "goals" && parts[2] === "chats") {
+    return { table: "goalChats", parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 3 && parts[0] === "goals" && parts[2] === "daily_checkins") {
+    return { table: "goalCheckIns", parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 3 && parts[0] === "goals" && parts[2] === "schedules") {
+    return { table: "checkInSchedules", parentField: "goalId", parentValue: parts[1] };
+  }
+  if (parts.length === 1 && parts[0] === "weekly_reviews") {
+    return { table: "weeklyReviews" };
+  }
+  if (parts.length === 1 && parts[0] === "rebalance_history") {
+    return { table: "rebalanceHistories" };
+  }
+  if (parts.length === 1 && parts[0] === "calendar_events") {
+    return { table: "calendarEvents" };
+  }
+  if (parts.length === 1 && parts[0] === "daily_todos") {
+    return { table: "dailyTodos" };
+  }
+  
+  throw new Error(`Unsupported database query path: ${path}`);
+}
+
+app.post("/api/db/get", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { path } = req.body;
+    const { table, idField, idValue } = mapPathToTableAndId(path);
+    const tableObj = tablesMap[table];
+    if (!tableObj) throw new Error(`Table ${table} not mapped`);
+
+    const uid = req.user!.uid;
+    await getOrCreateUser(uid, req.user!.email || `${uid}@example.com`);
+
+    const result = await db.select().from(tableObj).where(eq(tableObj[idField], idValue));
+    res.json({ data: result[0] || null });
+  } catch (error: any) {
+    console.error("Error in /api/db/get:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/db/set", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { path, data, options } = req.body;
+    const { table, idField, idValue } = mapPathToTableAndId(path);
+    const tableObj = tablesMap[table];
+    if (!tableObj) throw new Error(`Table ${table} not mapped`);
+
+    const uid = req.user!.uid;
+    await getOrCreateUser(uid, req.user!.email || `${uid}@example.com`);
+
+    const insertData = { ...data };
+    if (idField) {
+      insertData[idField] = idValue;
+    }
+    if (tableObj.userId) {
+      insertData.userId = uid;
+    }
+
+    const keys = Object.keys(insertData).filter(k => k !== idField);
+    const updateSet: any = {};
+    for (const k of keys) {
+      updateSet[k] = insertData[k];
+    }
+
+    await db.insert(tableObj)
+      .values(insertData)
+      .onConflictDoUpdate({
+        target: tableObj[idField],
+        set: updateSet,
+      });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error in /api/db/set:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/db/update", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { path, data } = req.body;
+    const { table, idField, idValue } = mapPathToTableAndId(path);
+    const tableObj = tablesMap[table];
+    if (!tableObj) throw new Error(`Table ${table} not mapped`);
+
+    const uid = req.user!.uid;
+    await getOrCreateUser(uid, req.user!.email || `${uid}@example.com`);
+
+    await db.update(tableObj)
+      .set(data)
+      .where(eq(tableObj[idField], idValue));
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error in /api/db/update:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/db/delete", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { path } = req.body;
+    const { table, idField, idValue } = mapPathToTableAndId(path);
+    const tableObj = tablesMap[table];
+    if (!tableObj) throw new Error(`Table ${table} not mapped`);
+
+    const uid = req.user!.uid;
+    await getOrCreateUser(uid, req.user!.email || `${uid}@example.com`);
+
+    await db.delete(tableObj).where(eq(tableObj[idField], idValue));
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error in /api/db/delete:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/db/query", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { path, constraints } = req.body;
+    const { table, parentField, parentValue } = mapCollectionPathToTable(path);
+    const tableObj = tablesMap[table];
+    if (!tableObj) throw new Error(`Table ${table} not mapped`);
+
+    const uid = req.user!.uid;
+    await getOrCreateUser(uid, req.user!.email || `${uid}@example.com`);
+
+    const conditions: any[] = [];
+    if (tableObj.userId) {
+      conditions.push(eq(tableObj.userId, uid));
+    }
+    if (parentField && parentValue) {
+      conditions.push(eq(tableObj[parentField], parentValue));
+    }
+
+    if (Array.isArray(constraints)) {
+      for (const c of constraints) {
+        if (c.type === "where") {
+          const { field, op, value } = c;
+          const dbField = tableObj[field];
+          if (dbField) {
+            if (op === "==") {
+              conditions.push(eq(dbField, value));
+            } else if (op === "in") {
+              conditions.push(inArray(dbField, value));
+            }
+          }
+        }
+      }
+    }
+
+    let queryBuilder: any = db.select().from(tableObj).where(and(...conditions));
+
+    if (Array.isArray(constraints)) {
+      for (const c of constraints) {
+        if (c.type === "orderBy") {
+          const { field, direction } = c;
+          const dbField = tableObj[field];
+          if (dbField) {
+            queryBuilder = queryBuilder.orderBy(direction === "desc" ? desc(dbField) : asc(dbField));
+          }
+        }
+      }
+    }
+
+    const results = await queryBuilder;
+    res.json({ data: results });
+  } catch (error: any) {
+    console.error("Error in /api/db/query:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/db/batch", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { operations } = req.body;
+    const uid = req.user!.uid;
+    await getOrCreateUser(uid, req.user!.email || `${uid}@example.com`);
+
+    await db.transaction(async (tx) => {
+      for (const op of operations) {
+        const { type, path, data, options } = op;
+        const { table, idField, idValue } = mapPathToTableAndId(path);
+        const tableObj = tablesMap[table];
+        if (!tableObj) throw new Error(`Table ${table} not mapped`);
+
+        if (type === "set") {
+          const insertData = { ...data };
+          if (idField) {
+            insertData[idField] = idValue;
+          }
+          if (tableObj.userId) {
+            insertData.userId = uid;
+          }
+
+          const keys = Object.keys(insertData).filter(k => k !== idField);
+          const updateSet: any = {};
+          for (const k of keys) {
+            updateSet[k] = insertData[k];
+          }
+
+          await tx.insert(tableObj)
+            .values(insertData)
+            .onConflictDoUpdate({
+              target: tableObj[idField],
+              set: updateSet,
+            });
+        } else if (type === "update") {
+          await tx.update(tableObj)
+            .set(data)
+            .where(eq(tableObj[idField], idValue));
+        } else if (type === "delete") {
+          await tx.delete(tableObj).where(eq(tableObj[idField], idValue));
+        }
+      }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error in /api/db/batch:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Feature: Daily Autonomous Check-in API
@@ -1057,6 +1374,40 @@ const rebalanceHandler = async (req: express.Request, res: express.Response) => 
 
 app.post("/api/generate-rebalance", rebalanceHandler);
 app.post("/api/ai/rebalance", rebalanceHandler);
+
+app.post("/api/ai/victory-praise", async (req, res) => {
+  try {
+    const { userId, goal, profile } = req.body;
+
+    if (!userId || !goal) {
+      return res.status(400).json({ error: "Missing required parameters: userId or goal" });
+    }
+
+    // Check Rate Limit (15/day)
+    const limitCheck = await checkRateLimit(userId, "victory_praise", 15);
+    if (!limitCheck.allowed) {
+      return res.status(429).json({
+        error: `Daily limit exceeded. (Used: ${limitCheck.count}/${limitCheck.limit})`,
+      });
+    }
+
+    let praiseText;
+    try {
+      praiseText = await executeVictoryPraise(userId, goal, profile);
+    } catch (aiError: any) {
+      console.warn("Gemini API call failed, activating victory praise fallback:", aiError.message || aiError);
+      praiseText = generateFallbackVictoryPraise(goal, profile);
+    }
+
+    return res.json({
+      content: praiseText,
+      rateLimit: { count: limitCheck.count, limit: limitCheck.limit },
+    });
+  } catch (error: any) {
+    console.error("Error generating victory praise:", error);
+    return res.status(500).json({ error: error.message || "Failed to generate victory praise" });
+  }
+});
 
 app.post("/api/generate-quote", async (req, res) => {
   try {

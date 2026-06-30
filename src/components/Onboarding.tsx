@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { UserProfile } from "../types";
 import { db, doc, setDoc } from "../lib/firebase";
 import { 
-  Sparkles, 
   ArrowRight, 
   Check, 
   Brain, 
@@ -236,13 +235,13 @@ export default function Onboarding({
         <h2 className="text-4xl font-serif font-medium tracking-tight text-theme-text-main select-none">
           Calibrate Your <span className="text-theme-text-muted-mono italic">Compass</span>
         </h2>
-        <p className="mt-2 text-xs sm:text-sm font-mono tracking-wide uppercase text-theme-text-muted mx-auto leading-relaxed w-[700px] h-[50px]">
+        <p className="mt-2 text-xs sm:text-sm font-mono tracking-wide uppercase text-theme-text-muted mx-auto leading-relaxed max-w-lg">
           Let's calibrate your personal goal operating system with a brief diagnostic questionnaire
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-[700px] px-4 relative z-10">
-        <div id="onboarding-form-card" className="w-[700px] bg-theme-bg-panel/90 py-8 px-6 border border-theme-border-main rounded-[2.5rem] shadow-2xl sm:px-10 backdrop-blur-md transition-colors duration-300">
+      <div className="mt-8 mx-auto w-full max-w-[700px] px-4 relative z-10">
+        <div id="onboarding-form-card" className="w-full bg-theme-bg-panel/90 py-8 px-6 border border-theme-border-main rounded-[2.5rem] shadow-2xl sm:px-10 backdrop-blur-md transition-colors duration-300">
           
           {/* Progress Indicator Dots & Steps */}
           <div className="relative mb-10">
